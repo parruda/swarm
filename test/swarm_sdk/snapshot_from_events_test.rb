@@ -63,7 +63,7 @@ module SwarmSDK
       stub_llm_sequence(
         # Lead makes delegation
         mock_llm_response(tool_calls: [
-          { name: "DelegateTaskToWorker", arguments: { task: "Do work" } },
+          { name: "WorkWithWorker", arguments: { message: "Do work" } },
         ]),
         # Worker responds
         mock_llm_response(content: "Work done"),
@@ -263,7 +263,7 @@ module SwarmSDK
       stub_llm_sequence(
         # Lead calls worker
         mock_llm_response(tool_calls: [
-          { name: "DelegateTaskToWorker", arguments: { task: "Work" } },
+          { name: "WorkWithWorker", arguments: { message: "Work" } },
         ]),
         # Worker responds
         mock_llm_response(content: "Work done"),

@@ -125,8 +125,8 @@ module SwarmSDK
       frontend_agent = swarm.agent(:frontend)
       backend_agent = swarm.agent(:backend)
 
-      frontend_db_tool = frontend_agent.tools[:DelegateTaskToDatabase]
-      backend_db_tool = backend_agent.tools[:DelegateTaskToDatabase]
+      frontend_db_tool = frontend_agent.tools[:WorkWithDatabase]
+      backend_db_tool = backend_agent.tools[:WorkWithDatabase]
 
       assert(frontend_db_tool, "Frontend should have database delegation tool")
       assert(backend_db_tool, "Backend should have database delegation tool")
@@ -237,7 +237,7 @@ module SwarmSDK
       frontend_agent = swarm.agent(:frontend)
 
       # Should only have ONE delegation tool (duplicates removed)
-      delegation_tools = frontend_agent.tools.keys.select { |k| k.to_s.start_with?("DelegateTaskTo") }
+      delegation_tools = frontend_agent.tools.keys.select { |k| k.to_s.start_with?("WorkWith") }
 
       assert_equal(1, delegation_tools.size, "Should deduplicate delegates_to")
     end
@@ -449,8 +449,8 @@ module SwarmSDK
       frontend_tester = swarm.delegation_instances["tester@frontend"]
       backend_tester = swarm.delegation_instances["tester@backend"]
 
-      frontend_db_tool = frontend_tester.tools[:DelegateTaskToDatabase]
-      backend_db_tool = backend_tester.tools[:DelegateTaskToDatabase]
+      frontend_db_tool = frontend_tester.tools[:WorkWithDatabase]
+      backend_db_tool = backend_tester.tools[:WorkWithDatabase]
 
       assert(frontend_db_tool, "Frontend's tester should have database tool")
       assert(backend_db_tool, "Backend's tester should have database tool")

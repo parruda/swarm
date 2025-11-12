@@ -69,7 +69,6 @@ module SwarmSDK
           type: :http,
           url: "https://api.example.com/mcp",
           timeout: 60,
-          oauth: { client_id: "id", client_secret: "secret" },
         )
       end
 
@@ -81,7 +80,6 @@ module SwarmSDK
       assert_equal(:http, servers[0][:type])
       assert_equal("https://api.example.com/mcp", servers[0][:url])
       assert_equal(60, servers[0][:timeout])
-      assert_equal({ client_id: "id", client_secret: "secret" }, servers[0][:oauth])
     end
 
     def test_multiple_mcp_servers

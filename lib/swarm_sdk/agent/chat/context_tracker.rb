@@ -63,14 +63,14 @@ module SwarmSDK
 
         # Extract agent name from delegation tool name
         #
-        # Converts "DelegateTaskTo[AgentName]" to "agent_name"
-        # Example: "DelegateTaskToWorker" -> "worker"
+        # Converts "#{Tools::Delegate::TOOL_NAME_PREFIX}[AgentName]" to "agent_name"
+        # Example: "WorkWithWorker" -> "worker"
         #
         # @param tool_name [String] Delegation tool name
         # @return [String] Agent name
         def extract_delegate_agent_name(tool_name)
-          # Remove "DelegateTaskTo" prefix and lowercase first letter
-          agent_name = tool_name.to_s.sub(/^DelegateTaskTo/, "")
+          # Remove tool name prefix and lowercase first letter
+          agent_name = tool_name.to_s.sub(/^#{Tools::Delegate::TOOL_NAME_PREFIX}/, "")
           # Convert from PascalCase to lowercase (e.g., "Worker" -> "worker", "BackendDev" -> "backendDev")
           agent_name[0] = agent_name[0].downcase unless agent_name.empty?
           agent_name
