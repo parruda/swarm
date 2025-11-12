@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Non-Blocking Execution with Cancellation Support**: Optional `wait` parameter enables task cancellation
+  - **`wait: true` (default)**: Maintains backward-compatible blocking behavior, returns `Result`
+  - **`wait: false`**: Returns `Async::Task` immediately for non-blocking execution
+  - **`task.stop`**: Cancels execution at next fiber yield point (HTTP I/O, tool boundaries)
+  - **Cooperative cancellation**: Stops when fiber yields, not immediate for synchronous operations
+  - **Proper cleanup**: MCP clients, fiber storage, and logging cleaned in task's ensure block
+  - **Cleanup on cancellation**: Ensure blocks execute when task stopped via `Async::Stop` exception
+  - **`task.wait` returns nil**: Cancelled tasks return `nil` from `wait` method
+  - **Execution flow**: Reprompting loop and all cleanup moved inside Async block
+  - **Parent cleanup**: Fiber storage cleaned after `task.wait` when `wait: true`
+  - **Examples**:
+    - Blocking: `result = swarm.execute("Build auth")` (current behavior)
+    - Non-blocking: `task = swarm.execute("Build auth", wait: false)` then `task.stop`
+  - **Files**: `lib/swarm_sdk/swarm.rb` (major refactor of execute method)
+  - **Tests**: 9 comprehensive tests in `test/swarm_sdk/execute_wait_parameter_test.rb`
+
+- **Delegation Result Event Reconstruction**: Snapshot/restore now handles delegation events properly
+  - **`delegation_result` event support**: EventsToMessages reconstructs tool result messages from delegations
+  - **Proper conversation restoration**: Delegations correctly reconstructed from event logs
+  - **Snapshot compatibility**: Enables complete state restoration including delegation history
+  - **Files**: `lib/swarm_sdk/events_to_messages.rb`
+
 - **User Prompt Source Tracking**: `user_prompt` events now include source information to distinguish user interactions from delegations
   - **`source` field**: Indicates origin of prompt - `"user"` (direct user interaction) or `"delegation"` (from delegation tool)
   - **Event filtering**: Enables filtering user prompts by source in logs and analytics
@@ -37,6 +59,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Implementation**: New `tools(*tool_names)` method on `AgentConfig`, stored in node configuration as tool override
   - **Backward compatible**: Omit `.tools()` to use agent's global tool configuration
   - **Files**: `lib/swarm_sdk/node/agent_config.rb`, `lib/swarm_sdk/node/builder.rb`, `lib/swarm_sdk/node_orchestrator.rb`
+
+### Changed
+
+- **BREAKING: Delegation Tool Rebranding**: Delegation tools renamed to emphasize collaboration over task delegation
+  - **Tool naming**: `DelegateTaskToBackend` → `WorkWithBackend`
+  - **Tool parameter**: `task:` → `message:` (more flexible, supports questions and collaboration)
+  - **Tool description**: Now emphasizes working with agents, not just delegating tasks
+  - **Configurable prefix**: Added `TOOL_NAME_PREFIX` constant for easy customization
+  - **Migration**: Update code/tests using `DelegateTaskTo*` to use `WorkWith*`
+  - **Parameter migration**: Change `task:` parameter to `message:` in delegation tool calls
+  - **Rationale**: Better reflects collaborative agent relationships and flexible communication patterns
+  - **Files affected**: `lib/swarm_sdk/tools/delegate.rb`, `lib/swarm_sdk/agent/chat/context_tracker.rb`, `lib/swarm_sdk/swarm/agent_initializer.rb`, `lib/swarm_cli/interactive_repl.rb`
+  - **Tests updated**: All delegation tests updated to use new naming (18 files)
+
+### Fixed
+
+- **MCP Configuration for Non-OAuth Servers**: Fixed errors when configuring MCP servers without OAuth
+  - **Issue**: OAuth field was included in streamable config even when not configured, causing errors
+  - **Fix**: Removed `oauth` field from streamable config hash
+  - **Additional fix**: Only include `rate_limit` if explicitly configured (avoid nil values)
+  - **Impact**: MCP servers without OAuth now configure correctly without errors
+  - **Files**: `lib/swarm_sdk/swarm/mcp_configurator.rb`
 
 ## [2.2.0] - 2025-11-06
 
