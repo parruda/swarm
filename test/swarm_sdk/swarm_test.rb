@@ -455,7 +455,7 @@ module SwarmSDK
       lead_agent = swarm.agent(:lead)
 
       # Verify backend tool was registered
-      assert(lead_agent.tools.key?(:DelegateTaskToBackend), "Expected backend tool to be registered")
+      assert(lead_agent.tools.key?(:WorkWithBackend), "Expected backend tool to be registered")
     end
 
     def test_register_agent_tools_with_unknown_agent_raises_error

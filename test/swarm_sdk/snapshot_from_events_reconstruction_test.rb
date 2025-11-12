@@ -103,7 +103,7 @@ module SwarmSDK
 
       stub_llm_sequence(
         mock_llm_response(tool_calls: [
-          { name: "DelegateTaskToWorker", arguments: { task: "Work" } },
+          { name: "WorkWithWorker", arguments: { message: "Work" } },
         ]),
         mock_llm_response(content: "Work done"),
         mock_llm_response(content: "Complete"),

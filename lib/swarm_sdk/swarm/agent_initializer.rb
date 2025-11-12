@@ -281,7 +281,7 @@ module SwarmSDK
       # Setup context for an agent (primary or delegation instance)
       def setup_agent_context(agent_name, agent_definition, chat, is_delegation: false)
         delegate_tool_names = agent_definition.delegates_to.map do |delegate_name|
-          "DelegateTaskTo#{delegate_name.to_s.capitalize}"
+          "#{Tools::Delegate::TOOL_NAME_PREFIX}#{delegate_name.to_s.capitalize}"
         end
 
         context = Agent::Context.new(

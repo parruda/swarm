@@ -138,13 +138,16 @@ module SwarmSDK
       # @param config [Hash] MCP server configuration
       # @return [Hash] Streamable configuration
       def build_streamable_config(config)
-        {
+        streamable_config = {
           url: config[:url],
           headers: config[:headers] || {},
           version: config[:version]&.to_sym || :http2,
-          oauth: config[:oauth],
-          rate_limit: config[:rate_limit],
         }
+
+        # Only include rate_limit if present
+        streamable_config[:rate_limit] = config[:rate_limit] if config[:rate_limit]
+
+        streamable_config
       end
     end
   end

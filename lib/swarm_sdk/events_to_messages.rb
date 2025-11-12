@@ -44,6 +44,7 @@ module SwarmSDK
   # - `agent_step`: Reconstructs assistant message with tool calls
   # - `agent_stop`: Reconstructs final assistant message
   # - `tool_result`: Reconstructs tool result message
+  # - `delegation_result`: Reconstructs tool result message from delegation
   class EventsToMessages
     class << self
       # Reconstruct messages for an agent from event stream
@@ -90,6 +91,8 @@ module SwarmSDK
           reconstruct_assistant_message(event)
         when "tool_result"
           reconstruct_tool_result_message(event)
+        when "delegation_result"
+          reconstruct_delegation_result_message(event)
         end
 
         messages << message if message
@@ -151,6 +154,21 @@ module SwarmSDK
     # @param event [Hash] tool_result event
     # @return [RubyLLM::Message] Tool result message
     def reconstruct_tool_result_message(event)
+      RubyLLM::Message.new(
+        role: :tool,
+        content: event[:result].to_s,
+        tool_call_id: event[:tool_call_id],
+      )
+    end
+
+    # Reconstruct tool result message from delegation_result event
+    #
+    # delegation_result events are emitted when a delegation completes,
+    # and they should be converted to tool result messages in the conversation.
+    #
+    # @param event [Hash] delegation_result event
+    # @return [RubyLLM::Message] Tool result message
+    def reconstruct_delegation_result_message(event)
       RubyLLM::Message.new(
         role: :tool,
         content: event[:result].to_s,

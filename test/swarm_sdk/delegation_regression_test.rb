@@ -44,7 +44,7 @@ module SwarmSDK
 
       # Verify delegation tool was created
       assert(
-        lead_agent.tools.key?(:DelegateTaskToBackend),
+        lead_agent.tools.key?(:WorkWithBackend),
         "Lead should have backend delegation tool",
       )
 
@@ -82,7 +82,7 @@ module SwarmSDK
 
       # Verify delegation tool was created
       assert(
-        lead_agent.tools.key?(:DelegateTaskToBackend),
+        lead_agent.tools.key?(:WorkWithBackend),
         "Lead should have backend delegation tool",
       )
 

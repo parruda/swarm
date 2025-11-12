@@ -2,12 +2,16 @@
 
 module SwarmSDK
   module Tools
-    # Delegate tool for delegating tasks to other agents in the swarm
+    # Delegate tool for working with other agents in the swarm
     #
-    # Creates agent-specific delegation tools (e.g., DelegateTaskToBackend)
-    # that allow one agent to delegate work to another agent.
+    # Creates agent-specific collaboration tools (e.g., WorkWithBackend)
+    # that allow one agent to work with another agent.
     # Supports pre/post delegation hooks for customization.
     class Delegate < RubyLLM::Tool
+      # Tool name prefix for delegation tools
+      # Change this to customize the tool naming pattern (e.g., "DelegateTaskTo", "AskAgent", etc.)
+      TOOL_NAME_PREFIX = "WorkWith"
+
       attr_reader :delegate_name, :delegate_target, :tool_name
 
       # Initialize a delegation tool
@@ -44,19 +48,19 @@ module SwarmSDK
         @swarm_registry = swarm_registry
         @delegating_chat = delegating_chat
 
-        # Generate tool name in the expected format: DelegateTaskTo[AgentName]
-        @tool_name = "DelegateTaskTo#{delegate_name.to_s.capitalize}"
+        # Generate tool name in the expected format: #{TOOL_NAME_PREFIX}[AgentName]
+        @tool_name = "#{TOOL_NAME_PREFIX}#{delegate_name.to_s.capitalize}"
         @delegate_target = delegate_name.to_s
       end
 
       # Override description to return dynamic string based on delegate
       def description
-        "Delegate tasks to #{@delegate_name}. #{@delegate_description}"
+        "Work with #{@delegate_name} to delegate work, ask questions, or collaborate. #{@delegate_description}"
       end
 
-      param :task,
+      param :message,
         type: "string",
-        desc: "Task description for the agent",
+        desc: "Message to send to the agent - can be a work request, question, or collaboration message",
         required: true
 
       # Override name to return custom delegation tool name
@@ -66,9 +70,9 @@ module SwarmSDK
 
       # Execute delegation with pre/post hooks
       #
-      # @param task [String] Task to delegate
+      # @param message [String] Message to send to the agent
       # @return [String] Result from delegate agent or error message
-      def execute(task:)
+      def execute(message:)
         # Check for circular dependency
         if @call_stack.include?(@delegate_target)
           emit_circular_warning
@@ -91,7 +95,7 @@ module SwarmSDK
           delegation_target: @delegate_target,
           metadata: {
             tool_name: @tool_name,
-            task: task,
+            message: message,
             timestamp: Time.now.utc.iso8601,
           },
         )
@@ -110,10 +114,10 @@ module SwarmSDK
         # Determine delegation type and proceed
         delegation_result = if @delegate_chat
           # Delegate to agent
-          delegate_to_agent(task)
+          delegate_to_agent(message)
         elsif @swarm_registry&.registered?(@delegate_target)
           # Delegate to registered swarm
-          delegate_to_swarm(task)
+          delegate_to_swarm(message)
         else
           raise ConfigurationError, "Unknown delegation target: #{@delegate_target}"
         end
@@ -127,7 +131,7 @@ module SwarmSDK
           delegation_result: delegation_result,
           metadata: {
             tool_name: @tool_name,
-            task: task,
+            message: message,
             result: delegation_result,
             timestamp: Time.now.utc.iso8601,
           },
@@ -190,13 +194,13 @@ module SwarmSDK
 
       # Delegate to an agent
       #
-      # @param task [String] Task to delegate
+      # @param message [String] Message to send to the agent
       # @return [String] Result from agent
-      def delegate_to_agent(task)
+      def delegate_to_agent(message)
         # Push delegate target onto call stack to track delegation chain
         @call_stack.push(@delegate_target)
         begin
-          response = @delegate_chat.ask(task, source: "delegation")
+          response = @delegate_chat.ask(message, source: "delegation")
           response.content
         ensure
           # Always pop from stack, even if delegation fails
@@ -206,9 +210,9 @@ module SwarmSDK
 
       # Delegate to a registered swarm
       #
-      # @param task [String] Task to delegate
+      # @param message [String] Message to send to the swarm
       # @return [String] Result from swarm's lead agent
-      def delegate_to_swarm(task)
+      def delegate_to_swarm(message)
         # Load sub-swarm (lazy load + cache)
         subswarm = @swarm_registry.load_swarm(@delegate_target)
 
@@ -217,7 +221,7 @@ module SwarmSDK
         begin
           # Execute sub-swarm's lead agent
           lead_agent = subswarm.agents[subswarm.lead_agent]
-          response = lead_agent.ask(task, source: "delegation")
+          response = lead_agent.ask(message, source: "delegation")
           result = response.content
 
           # Reset if keep_context: false
