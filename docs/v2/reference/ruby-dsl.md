@@ -910,7 +910,7 @@ delegates_to(*agent_names) → void
 
 **Behavior:**
 - Multiple calls are cumulative
-- Creates a `DelegateTaskTo{Agent}` tool for each target (e.g., `DelegateTaskToDatabase`)
+- Creates a `WorkWith{Agent}` tool for each target (e.g., `WorkWithDatabase`)
 
 **Example:**
 ```ruby
@@ -1962,16 +1962,19 @@ Execute a task using the lead agent.
 
 **Signature:**
 ```ruby
-swarm.execute(prompt, &block) → Result
+swarm.execute(prompt, wait: true, &block) → Result | Async::Task
 ```
 
 **Parameters:**
 - `prompt` (String, required): Task prompt
+- `wait` (Boolean, optional): If true (default), blocks until execution completes. If false, returns Async::Task immediately for non-blocking execution.
 - `block` (optional): Log entry handler for streaming
 
-**Returns:** `Result` object
+**Returns:**
+- `Result` if `wait: true` (default)
+- `Async::Task` if `wait: false`
 
-**Example:**
+**Example - Blocking execution (default):**
 ```ruby
 # Basic execution
 result = swarm.execute("Build a REST API")
@@ -1991,6 +1994,36 @@ else
   puts "Error: #{result.error.message}"
 end
 ```
+
+**Example - Non-blocking execution with cancellation:**
+```ruby
+# Start non-blocking execution
+task = swarm.execute("Build a REST API", wait: false) do |log_entry|
+  puts "#{log_entry[:type]}: #{log_entry[:agent]}"
+end
+
+# ... do other work ...
+
+# Cancel anytime
+task.stop
+
+# Wait for result (returns nil if cancelled)
+result = task.wait
+if result.nil?
+  puts "Execution was cancelled"
+elsif result.success?
+  puts result.content
+else
+  puts "Error: #{result.error.message}"
+end
+```
+
+**Non-blocking execution details:**
+- **`wait: false`**: Returns `Async::Task` immediately, enabling cancellation via `task.stop`
+- **Cooperative cancellation**: Stops when fiber yields (HTTP I/O, tool boundaries), not immediate
+- **Proper cleanup**: MCP clients, fiber storage, and logging cleaned in task's ensure block
+- **`task.wait` returns nil**: Cancelled tasks return `nil` from `wait` method
+- **Use cases**: Long-running tasks, user-initiated cancellation, timeout handling
 
 ---
 
