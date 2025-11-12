@@ -124,10 +124,10 @@ An **agent** is an AI with specific capabilities and constraints:
 
 Delegation is how agents collaborate. When an agent is configured with `delegates_to: [other_agent]`, it gains a special delegation tool.
 
-**Delegation tool naming**: Tools are named `DelegateTaskTo{AgentName}` where AgentName is capitalized. For example:
-- `delegates_to: [reviewer]` → creates `DelegateTaskToReviewer` tool
-- `delegates_to: [backend]` → creates `DelegateTaskToBackend` tool
-- `delegates_to: [qa_tester]` → creates `DelegateTaskToQa_tester` tool
+**Delegation tool naming**: Tools are named `WorkWith{AgentName}` where AgentName is capitalized. For example:
+- `delegates_to: [reviewer]` → creates `WorkWithReviewer` tool
+- `delegates_to: [backend]` → creates `WorkWithBackend` tool
+- `delegates_to: [qa_tester]` → creates `WorkWithQa_tester` tool
 
 **Example flow**:
 1. You send "Build a login page" to the **lead** agent
@@ -750,7 +750,7 @@ swarm = SwarmSDK.load_file('swarm.yml')
 result = swarm.execute("Write a function to validate email addresses and get it reviewed")
 ```
 
-**How delegation works**: The coder writes code, then calls the `DelegateTaskToReviewer` tool to get feedback. The reviewer analyzes and returns suggestions. The coder can iterate based on feedback.
+**How delegation works**: The coder writes code, then calls the `WorkWithReviewer` tool to get feedback. The reviewer analyzes and returns suggestions. The coder can iterate based on feedback.
 
 ### Using Multiple Tools
 
@@ -1026,7 +1026,7 @@ swarm = SwarmSDK.build do
     model "gpt-4"
   end
 end
-# Leader won't have DelegateTaskToHelper tool!
+# Leader won't have WorkWithHelper tool!
 ```
 
 **Solution**:
@@ -1412,7 +1412,7 @@ tools :Bash         # Run shell commands
 agent :leader do
   description "Coordinates work"
   model "gpt-4"
-  delegates_to :worker  # Creates DelegateTaskToWorker tool
+  delegates_to :worker  # Creates WorkWithWorker tool
 end
 
 agent :worker do
