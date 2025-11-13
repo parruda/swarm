@@ -6,24 +6,53 @@ Complete YAML configuration reference for SwarmSDK v2.
 
 ## Document Structure
 
-SwarmSDK v2 configurations follow this structure:
+SwarmSDK v2 configurations support two types:
+
+### Simple Swarm (Multi-Agent Collaboration)
 
 ```yaml
 version: 2
 swarm:
-  name: "Swarm Name"
-  lead: agent_name
+  name: "Development Team"
+  lead: backend           # Required for swarms
   agents:
-    agent_name:
+    backend:
       # Agent configuration
-  all_agents:
-    # Shared agent configuration
-  hooks:
-    # Swarm-level hooks
-  nodes:
-    # Node configurations (optional)
-  start_node: node_name  # Required if nodes defined
+    tester:
+      # Agent configuration
 ```
+
+**Returns:** `SwarmSDK::Swarm` when loaded with `SwarmSDK.load_file`
+
+### Workflow (Multi-Stage Pipeline)
+
+```yaml
+version: 2
+swarm:
+  name: "Build Pipeline"
+  start_node: planning    # Required for workflows
+  agents:
+    architect:
+      # Agent configuration
+    coder:
+      # Agent configuration
+  nodes:                  # Presence of nodes creates Workflow
+    planning:
+      agents:
+        - agent: architect
+    implementation:
+      agents:
+        - agent: coder
+      dependencies:
+        - planning
+```
+
+**Returns:** `SwarmSDK::Workflow` when loaded with `SwarmSDK.load_file`
+
+**Automatic Detection:**
+- If `nodes:` is present → Creates `Workflow`
+- If `nodes:` is absent → Creates `Swarm`
+- Same YAML loading API works for both types!
 
 ---
 
