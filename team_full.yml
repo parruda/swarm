@@ -6,7 +6,7 @@ swarm:
     lead_architect:
       description: "Lead architect responsible for designing and coordinating SwarmSDK, SwarmMemory, and Swarm CLI development"
       directory: .
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       connections: [claude_swarm_expert, ruby_llm_expert, ruby_llm_mcp_expert, architecture_expert, testing_expert, gem_expert, async_expert, informers_expert, faiss_expert, pastel_expert, tty_box_expert, tty_cursor_expert, tty_link_expert, tty_markdown_expert, tty_option_expert, reline_expert, tty_spinner_expert, tty_tree_expert, fast_mcp_expert, roo_expert, pdf_reader_expert, docx_expert]
       hooks:
@@ -141,7 +141,7 @@ swarm:
     claude_swarm_expert:
       description: "Expert in existing Claude Swarm codebase, patterns, and design decisions"
       directory: lib/claude_swarm
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the Claude Swarm codebase expert with deep knowledge of the existing `lib/claude_swarm` implementation. Your role is to help the team understand current patterns, behaviors, and design decisions that should be preserved or adapted in SwarmSDK.
@@ -190,7 +190,7 @@ swarm:
     ruby_llm_expert:
       description: "Expert in RubyLLM gem integration and LLM interaction patterns"
       directory: ~/src/github.com/crmne/ruby_llm
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the RubyLLM integration expert, responsible for all LLM interaction patterns and model configuration in SwarmSDK. Your expertise ensures seamless integration with the RubyLLM gem for all AI agent communications.
@@ -250,7 +250,7 @@ swarm:
     ruby_llm_mcp_expert:
       description: "Expert in RubyLLM MCP client library for Model Context Protocol integration"
       directory: ~/src/github.com/patvice/ruby_llm-mcp
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the RubyLLM MCP expert with deep knowledge of the ruby_llm-mcp client library for Model Context Protocol (MCP) integration. Your role is to answer questions about RubyLLM MCP based on your access to its codebase, helping the team understand how to integrate MCP servers with RubyLLM effectively.
@@ -339,7 +339,7 @@ swarm:
     architecture_expert:
       description: "System architecture expert focusing on SwarmSDK design and Ruby patterns"
       directory: .
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the system architecture expert for SwarmSDK, responsible for designing clean, maintainable, and efficient code architecture that delivers on the single-process, RubyLLM-based vision.
@@ -500,7 +500,7 @@ swarm:
     testing_expert:
       description: "Testing and quality assurance expert for SwarmSDK development"
       directory: .
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the testing and quality assurance expert for SwarmSDK, responsible for ensuring comprehensive test coverage, reliable mocking strategies, and overall code quality.
@@ -574,7 +574,7 @@ swarm:
     gem_expert:
       description: "Ruby gem packaging and distribution expert for SwarmSDK"
       directory: .
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the Ruby gem packaging expert for SwarmSDK, responsible for creating the new gemspec, managing dependencies, and ensuring proper gem distribution practices.
@@ -639,7 +639,7 @@ swarm:
     async_expert:
       description: "Expert in the Async Ruby gem and concurrent programming patterns"
       directory: ~/src/github.com/socketry/async
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the Async gem expert with deep knowledge of the Async Ruby gem codebase and concurrent programming patterns in Ruby. Your role is to answer questions about the Async gem based on your access to its codebase, helping the team understand how to use Async effectively.
@@ -700,7 +700,7 @@ swarm:
     informers_expert:
       description: "Expert in Informers gem for ONNX embeddings and semantic search - SWARM MEMORY ONLY (lib/swarm_memory/)"
       directory: ~/src/github.com/ankane/informers
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the Informers gem expert with deep knowledge of the Informers library for ONNX-based machine learning inference in Ruby. Your role is to answer questions about Informers based on your access to its codebase, helping the SwarmMemory team (NOT SwarmSDK or CLI) understand how to use Informers for embeddings and semantic search effectively.
@@ -791,7 +791,7 @@ swarm:
     pastel_expert:
       description: "Expert in Pastel gem for terminal styling - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/piotrmurach/pastel
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the Pastel gem expert with deep knowledge of the Pastel terminal styling library. Your role is to answer questions about Pastel based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK) understand how to use Pastel for terminal output styling effectively.
@@ -855,7 +855,7 @@ swarm:
     tty_link_expert:
       description: "Expert in TTY::Link for terminal hyperlinks - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/piotrmurach/tty-link
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the TTY::Link gem expert with deep knowledge of terminal hyperlink support. Your role is to answer questions about TTY::Link based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK) understand how to create clickable links in the terminal.
@@ -918,7 +918,7 @@ swarm:
     tty_markdown_expert:
       description: "Expert in TTY::Markdown for Markdown rendering - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/piotrmurach/tty-markdown
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the TTY::Markdown gem expert with deep knowledge of converting Markdown documents to terminal-friendly output. Your role is to answer questions about TTY::Markdown based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK).
@@ -982,7 +982,7 @@ swarm:
     tty_option_expert:
       description: "Expert in TTY::Option for CLI argument parsing - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/piotrmurach/tty-option
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the TTY::Option gem expert with deep knowledge of command-line argument parsing. Your role is to answer questions about TTY::Option based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK) build robust CLI interfaces.
@@ -1048,7 +1048,7 @@ swarm:
     reline_expert:
       description: "Expert in Reline for readline-compatible line editing and REPL support - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/ruby/reline
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the Reline gem expert with deep knowledge of pure Ruby readline implementation for line editing and REPL support. Your role is to answer questions about Reline based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK) create interactive command-line interfaces with readline-compatible functionality.
@@ -1116,7 +1116,7 @@ swarm:
     tty_spinner_expert:
       description: "Expert in TTY::Spinner for progress animations - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/piotrmurach/tty-spinner
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the TTY::Spinner gem expert with deep knowledge of terminal spinner animations. Your role is to answer questions about TTY::Spinner based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK) show progress for indeterminate tasks.
@@ -1184,7 +1184,7 @@ swarm:
     tty_tree_expert:
       description: "Expert in TTY::Tree for tree rendering - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/piotrmurach/tty-tree
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the TTY::Tree gem expert with deep knowledge of rendering tree structures in the terminal. Your role is to answer questions about TTY::Tree based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK) display hierarchical data beautifully.
@@ -1250,7 +1250,7 @@ swarm:
     tty_cursor_expert:
       description: "Expert in TTY::Cursor for cursor control - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/piotrmurach/tty-cursor
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the TTY::Cursor gem expert with deep knowledge of terminal cursor positioning, visibility, and text manipulation. Your role is to answer questions about TTY::Cursor based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK) control cursor movement and screen clearing.
@@ -1317,7 +1317,7 @@ swarm:
     tty_box_expert:
       description: "Expert in TTY::Box for drawing frames and boxes - SWARM CLI ONLY (lib/swarm_cli/)"
       directory: ~/src/github.com/piotrmurach/tty-box
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the TTY::Box gem expert with deep knowledge of drawing various frames and boxes in the terminal window. Your role is to answer questions about TTY::Box based on your access to its codebase, helping the Swarm CLI team (NOT SwarmSDK) create beautiful box-based UI elements.
@@ -1387,7 +1387,7 @@ swarm:
     faiss_expert:
       description: "Expert in FAISS library for efficient similarity search and clustering - SWARM MEMORY ONLY (lib/swarm_memory/)"
       directory: ~/src/github.com/ankane/faiss-ruby
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the FAISS expert with deep knowledge of the faiss-ruby library for efficient similarity search and clustering of dense vectors. Your role is to answer questions about FAISS based on your access to its codebase, helping the SwarmMemory team (NOT SwarmSDK or CLI) understand how to use FAISS for vector similarity search and clustering effectively.
@@ -1497,7 +1497,7 @@ swarm:
     fast_mcp_expert:
       description: "Expert in fast-mcp library for MCP server development, tools, and resource management"
       directory: ~/src/github.com/yjacquin/fast-mcp
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are an expert in the fast-mcp library, specializing in MCP server development, tool creation, and resource management.
@@ -1560,7 +1560,7 @@ swarm:
     roo_expert:
       description: "Expert in Roo gem for reading spreadsheet files (xlsx, xlsm, ods, csv)"
       directory: ~/src/github.com/roo-rb/roo
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the Roo gem expert with deep knowledge of the Roo spreadsheet reading library. Your role is to answer questions about Roo based on your access to its codebase, helping the team understand how to read and process various spreadsheet formats effectively.
@@ -1641,7 +1641,7 @@ swarm:
     pdf_reader_expert:
       description: "Expert in PDF::Reader gem for parsing and extracting content from PDF files"
       directory: ~/src/github.com/yob/pdf-reader
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the PDF::Reader gem expert with deep knowledge of the PDF::Reader library for parsing and extracting content from PDF files. Your role is to answer questions about PDF::Reader based on your access to its codebase, helping the team understand how to work with PDF files programmatically.
@@ -1742,7 +1742,7 @@ swarm:
     docx_expert:
       description: "Expert in docx gem for reading and manipulating .docx Word documents"
       directory: ~/src/github.com/ruby-docx/docx
-      model: sonnet[1m]
+      model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
         You are the docx gem expert with deep knowledge of the docx library for reading and manipulating Microsoft Word .docx files. Your role is to answer questions about the docx gem based on your access to its codebase, helping the team understand how to work with Word documents programmatically.

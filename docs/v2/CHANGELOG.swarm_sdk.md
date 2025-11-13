@@ -17,9 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Snapshot version bumped to 2.0.0 (old snapshots incompatible)
   - Snapshot structure changed: `swarm:` key renamed to `metadata:`
 
+- **YAML Configuration**: Explicit type keys for Swarm vs Workflow
+  - `swarm:` key now ONLY for Swarm configurations (requires `lead:`, cannot have `nodes:`)
+  - New `workflow:` key for Workflow configurations (requires `start_node:` and `nodes:`)
+  - Cannot have both `swarm:` and `workflow:` keys in same file
+  - Same `SwarmSDK.load_file` API works for both types (auto-detects from root key)
+
 ### Added
 
 - New `SwarmSDK.workflow` DSL for building multi-stage workflows
+- **YAML `workflow:` key support**: Explicit root key for workflow configurations
+  - Clearer separation between Swarm and Workflow in YAML files
+  - Configuration class with proper separation of concerns (type detection, validation, loading)
+  - Validates type-specific requirements (e.g., `swarm:` cannot have `nodes:`)
 - Three new concern modules for shared functionality:
   - `Concerns::Snapshotable` - Common snapshot/restore interface
   - `Concerns::Validatable` - Common validation interface
@@ -52,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **For vanilla swarm users (no nodes):** No changes needed! Your code works as-is.
 
-**For workflow users (using nodes):** Change `SwarmSDK.build` to `SwarmSDK.workflow`:
+**For workflow users (using Ruby DSL):** Change `SwarmSDK.build` to `SwarmSDK.workflow`:
 
 ```ruby
 # Before
@@ -64,6 +74,26 @@ end
 SwarmSDK.workflow do
   node :planning { ... }
 end
+```
+
+**For YAML workflow users:** Change `swarm:` key to `workflow:`:
+
+```yaml
+# Before
+version: 2
+swarm:
+  name: "Pipeline"
+  start_node: planning
+  agents: { ... }
+  nodes: { ... }
+
+# After
+version: 2
+workflow:
+  name: "Pipeline"
+  start_node: planning
+  agents: { ... }
+  nodes: { ... }
 ```
 
 **For event-sourcing users:** No changes needed! `SnapshotFromEvents.reconstruct(events)` automatically generates v2.0.0 snapshots.

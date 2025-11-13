@@ -285,12 +285,10 @@ module SwarmSDK
       current_prompt = prompt
       has_logging = block_given?
 
-      # Force cleanup of any lingering scheduler from previous requests
-      # This ensures we always take the clean Path C in Async()
-      # See: Async expert analysis - prevents scheduler leak in Puma
-      if Fiber.scheduler && !Async::Task.current?
-        Fiber.set_scheduler(nil)
-      end
+      # REMOVED: Scheduler cleanup - let Async gem manage it
+      # Previously we cleared Fiber.scheduler to force clean Async() behavior,
+      # but this caused issues with semaphores. Now we use Sync() which handles
+      # both sync and async calling contexts correctly.
 
       # Set fiber-local execution context
       # Use ||= to inherit parent's execution_id if one exists (for mini-swarms)
@@ -343,149 +341,147 @@ module SwarmSDK
         @agent_start_events_emitted = true
       end
 
-      # Store reference to execution task for cancellation support
-      @current_task = Async(finished: false) do
-        start_time = Time.now
-        result = nil
-        swarm_stop_triggered = false
+      # Implementation differs based on wait parameter
+      # wait: true uses Sync (blocking), wait: false requires existing async context
+      if wait
+        # Blocking execution - use Sync which works from both sync and async contexts
+        # Sync ensures the reactor stays alive until all child tasks complete,
+        # preventing semaphore deadlocks when fibers are blocked
+        @current_task = Sync do |task|
+          start_time = Time.now
+          result = nil
+          swarm_stop_triggered = false
 
-        # Execution loop (supports reprompting) - runs inside Async
-        loop do
-          # Execute within nested Async reactor to enable fiber scheduler for parallel execution
-          # This sets Fiber.scheduler, making Faraday fiber-aware so HTTP requests yield during I/O
-          # Use finished: false to suppress warnings for expected task failures
-          lead = @agents[@lead_agent]
-          response = Async(finished: false) do
-            lead.ask(current_prompt)
-          end.wait
+          # Execution loop (supports reprompting)
+          loop do
+            # Create child task for LLM call
+            # Using task.async instead of Async() is more efficient and explicit
+            lead = @agents[@lead_agent]
+            response = task.async(finished: false) do
+              lead.ask(current_prompt)
+            end.wait
 
-          # Check if swarm was finished by a hook (finish_swarm)
-          if response.is_a?(Hash) && response[:__finish_swarm__]
+            # Check if swarm was finished by a hook (finish_swarm)
+            if response.is_a?(Hash) && response[:__finish_swarm__]
+              result = Result.new(
+                content: response[:message],
+                agent: @lead_agent.to_s,
+                logs: logs,
+                duration: Time.now - start_time,
+              )
+
+              # Trigger swarm_stop hooks for event emission
+              trigger_swarm_stop(result)
+              swarm_stop_triggered = true
+
+              # Break immediately - don't allow reprompting when swarm is finished by hook
+              break
+            end
+
             result = Result.new(
-              content: response[:message],
+              content: response.content,
               agent: @lead_agent.to_s,
               logs: logs,
               duration: Time.now - start_time,
             )
 
-            # Trigger swarm_stop hooks for event emission
-            trigger_swarm_stop(result)
+            # Trigger swarm_stop hooks (for reprompt check and event emission)
+            hook_result = trigger_swarm_stop(result)
             swarm_stop_triggered = true
 
-            # Break immediately - don't allow reprompting when swarm is finished by hook
-            break
+            # Check if hook requests reprompting
+            if hook_result&.reprompt?
+              current_prompt = hook_result.value
+              swarm_stop_triggered = false # Will trigger again in next iteration
+              # Continue loop with new prompt
+            else
+              # Exit loop - execution complete
+              break
+            end
           end
 
-          result = Result.new(
-            content: response.content,
-            agent: @lead_agent.to_s,
-            logs: logs,
-            duration: Time.now - start_time,
-          )
+          result
+        rescue ConfigurationError, AgentNotFoundError
+          # Re-raise configuration errors - these should be fixed, not caught
+          raise
+        rescue TypeError => e
+          # Catch the specific "String does not have #dig method" error
+          if e.message.include?("does not have #dig method")
+            agent_definition = @agent_definitions[@lead_agent]
+            error_msg = if agent_definition.base_url
+              "LLM API request failed: The proxy/server at '#{agent_definition.base_url}' returned an invalid response. " \
+                "This usually means the proxy is unreachable, requires authentication, or returned an error in non-JSON format. " \
+                "Original error: #{e.message}"
+            else
+              "LLM API request failed with unexpected response format. Original error: #{e.message}"
+            end
 
-          # Trigger swarm_stop hooks (for reprompt check and event emission)
-          hook_result = trigger_swarm_stop(result)
-          swarm_stop_triggered = true
-
-          # Check if hook requests reprompting
-          if hook_result&.reprompt?
-            current_prompt = hook_result.value
-            swarm_stop_triggered = false # Will trigger again in next iteration
-            # Continue loop with new prompt
+            Result.new(
+              content: nil,
+              agent: @lead_agent.to_s,
+              error: LLMError.new(error_msg),
+              logs: logs,
+              duration: Time.now - start_time,
+            )
           else
-            # Exit loop - execution complete
-            break
+            Result.new(
+              content: nil,
+              agent: @lead_agent.to_s,
+              error: e,
+              logs: logs,
+              duration: Time.now - start_time,
+            )
           end
-        end
-
-        result
-      rescue ConfigurationError, AgentNotFoundError
-        # Re-raise configuration errors - these should be fixed, not caught
-        raise
-      rescue TypeError => e
-        # Catch the specific "String does not have #dig method" error
-        if e.message.include?("does not have #dig method")
-          agent_definition = @agent_definitions[@lead_agent]
-          error_msg = if agent_definition.base_url
-            "LLM API request failed: The proxy/server at '#{agent_definition.base_url}' returned an invalid response. " \
-              "This usually means the proxy is unreachable, requires authentication, or returned an error in non-JSON format. " \
-              "Original error: #{e.message}"
-          else
-            "LLM API request failed with unexpected response format. Original error: #{e.message}"
-          end
-
+        rescue StandardError => e
           Result.new(
             content: nil,
-            agent: @lead_agent.to_s,
-            error: LLMError.new(error_msg),
-            logs: logs,
-            duration: Time.now - start_time,
-          )
-        else
-          Result.new(
-            content: nil,
-            agent: @lead_agent.to_s,
+            agent: @lead_agent&.to_s || "unknown",
             error: e,
             logs: logs,
             duration: Time.now - start_time,
           )
+        ensure
+          # ALL CLEANUP happens here (runs on completion OR cancellation)
+          # This ensures cleanup executes whether task completes normally or is stopped via task.stop
+
+          # Trigger swarm_stop if not already triggered (handles error cases)
+          unless swarm_stop_triggered
+            trigger_swarm_stop_final(result, start_time, logs)
+          end
+
+          # Cleanup MCP clients after execution
+          cleanup
+
+          # Only clear Fiber storage if we set up logging (same pattern as LogCollector)
+          # Mini-swarms are called without block, so they don't clear
+          if has_logging
+            Fiber[:execution_id] = nil
+            Fiber[:swarm_id] = nil
+            Fiber[:parent_swarm_id] = nil
+          end
+
+          # Reset logging state for next execution if we set it up
+          #
+          # IMPORTANT: Only reset if we set up logging (has_logging == true).
+          # When this swarm is a mini-swarm within a Workflow,
+          # the workflow manages LogCollector and we don't set up logging.
+          #
+          # Flow in Workflow:
+          # 1. Workflow sets up LogCollector + LogStream (no block given to mini-swarms)
+          # 2. Each mini-swarm executes without logging block (has_logging == false)
+          # 3. Each mini-swarm skips reset (didn't set up logging)
+          # 4. Workflow resets once at the very end
+          #
+          # Flow in standalone swarm / interactive REPL:
+          # 1. Swarm.execute sets up LogCollector + LogStream (block given)
+          # 2. Swarm.execute resets in task's ensure block (cleanup before result available)
+          if has_logging
+            LogCollector.reset!
+            LogStream.reset!
+          end
         end
-      rescue StandardError => e
-        Result.new(
-          content: nil,
-          agent: @lead_agent&.to_s || "unknown",
-          error: e,
-          logs: logs,
-          duration: Time.now - start_time,
-        )
-      ensure
-        # ALL CLEANUP happens here (runs on completion OR cancellation)
-        # This ensures cleanup executes whether task completes normally or is stopped via task.stop
 
-        # Trigger swarm_stop if not already triggered (handles error cases)
-        unless swarm_stop_triggered
-          trigger_swarm_stop_final(result, start_time, logs)
-        end
-
-        # Cleanup MCP clients after execution
-        cleanup
-
-        # Only clear Fiber storage if we set up logging (same pattern as LogCollector)
-        # Mini-swarms are called without block, so they don't clear
-        if has_logging
-          Fiber[:execution_id] = nil
-          Fiber[:swarm_id] = nil
-          Fiber[:parent_swarm_id] = nil
-        end
-
-        # Reset logging state for next execution if we set it up
-        #
-        # IMPORTANT: Only reset if we set up logging (has_logging == true).
-        # When this swarm is a mini-swarm within a Workflow,
-        # the workflow manages LogCollector and we don't set up logging.
-        #
-        # Flow in Workflow:
-        # 1. Workflow sets up LogCollector + LogStream (no block given to mini-swarms)
-        # 2. Each mini-swarm executes without logging block (has_logging == false)
-        # 3. Each mini-swarm skips reset (didn't set up logging)
-        # 4. Workflow resets once at the very end
-        #
-        # Flow in standalone swarm / interactive REPL:
-        # 1. Swarm.execute sets up LogCollector + LogStream (block given)
-        # 2. Swarm.execute resets in task's ensure block (cleanup before result available)
-        if has_logging
-          LogCollector.reset!
-          LogStream.reset!
-        end
-      end
-
-      # Conditional wait based on parameter
-      # wait: true (default) - blocks and returns Result
-      # wait: false - returns Async::Task immediately for non-blocking execution
-      if wait
-        result = @current_task.wait
-
-        # Clean up parent fiber's storage when blocking (wait: true)
+        # Clean up parent fiber's storage after Sync completes
         # The child fiber cleaned up its own storage in ensure block, but parent still has values
         # This only matters when has_logging == true because mini-swarms don't clear storage
         # (they rely on orchestrator to clear once at the end)
@@ -495,10 +491,133 @@ module SwarmSDK
           Fiber[:parent_swarm_id] = nil
         end
 
-        result
       else
-        @current_task
+        # Non-blocking execution - requires existing async context
+        # This allows swarm.execute(..., wait: false) to return a task that can be stopped
+        parent = Async::Task.current
+        raise ConfigurationError, "wait: false requires an async context. Use Sync { swarm.execute(..., wait: false) }" unless parent
+
+        @current_task = parent.async(finished: false) do
+          start_time = Time.now
+          result = nil
+          swarm_stop_triggered = false
+
+          # Execution loop (supports reprompting)
+          loop do
+            # Create child task for LLM call
+            lead = @agents[@lead_agent]
+            response = Async(finished: false) do
+              lead.ask(current_prompt)
+            end.wait
+
+            # Check if swarm was finished by a hook (finish_swarm)
+            if response.is_a?(Hash) && response[:__finish_swarm__]
+              result = Result.new(
+                content: response[:message],
+                agent: @lead_agent.to_s,
+                logs: logs,
+                duration: Time.now - start_time,
+              )
+
+              # Trigger swarm_stop hooks for event emission
+              trigger_swarm_stop(result)
+              swarm_stop_triggered = true
+
+              # Break immediately - don't allow reprompting when swarm is finished by hook
+              break
+            end
+
+            result = Result.new(
+              content: response.content,
+              agent: @lead_agent.to_s,
+              logs: logs,
+              duration: Time.now - start_time,
+            )
+
+            # Trigger swarm_stop hooks (for reprompt check and event emission)
+            hook_result = trigger_swarm_stop(result)
+            swarm_stop_triggered = true
+
+            # Check if hook requests reprompting
+            if hook_result&.reprompt?
+              current_prompt = hook_result.value
+              swarm_stop_triggered = false # Will trigger again in next iteration
+              # Continue loop with new prompt
+            else
+              # Exit loop - execution complete
+              break
+            end
+          end
+
+          result
+        rescue ConfigurationError, AgentNotFoundError
+          # Re-raise configuration errors - these should be fixed, not caught
+          raise
+        rescue TypeError => e
+          # Catch the specific "String does not have #dig method" error
+          if e.message.include?("does not have #dig method")
+            agent_definition = @agent_definitions[@lead_agent]
+            error_msg = if agent_definition.base_url
+              "LLM API request failed: The proxy/server at '#{agent_definition.base_url}' returned an invalid response. " \
+                "This usually means the proxy is unreachable, requires authentication, or returned an error in non-JSON format. " \
+                "Original error: #{e.message}"
+            else
+              "LLM API request failed with unexpected response format. Original error: #{e.message}"
+            end
+
+            Result.new(
+              content: nil,
+              agent: @lead_agent.to_s,
+              error: LLMError.new(error_msg),
+              logs: logs,
+              duration: Time.now - start_time,
+            )
+          else
+            Result.new(
+              content: nil,
+              agent: @lead_agent.to_s,
+              error: e,
+              logs: logs,
+              duration: Time.now - start_time,
+            )
+          end
+        rescue StandardError => e
+          Result.new(
+            content: nil,
+            agent: @lead_agent&.to_s || "unknown",
+            error: e,
+            logs: logs,
+            duration: Time.now - start_time,
+          )
+        ensure
+          # ALL CLEANUP happens here (runs on completion OR cancellation)
+          # This ensures cleanup executes whether task completes normally or is stopped via task.stop
+
+          # Trigger swarm_stop if not already triggered (handles error cases)
+          unless swarm_stop_triggered
+            trigger_swarm_stop_final(result, start_time, logs)
+          end
+
+          # Cleanup MCP clients after execution
+          cleanup
+
+          # Only clear Fiber storage if we set up logging (same pattern as LogCollector)
+          # Mini-swarms are called without block, so they don't clear
+          if has_logging
+            Fiber[:execution_id] = nil
+            Fiber[:swarm_id] = nil
+            Fiber[:parent_swarm_id] = nil
+          end
+
+          # Reset logging state for next execution if we set it up
+          if has_logging
+            LogCollector.reset!
+            LogStream.reset!
+          end
+        end
+
       end
+      @current_task
     end
 
     # Get an agent chat instance by name
