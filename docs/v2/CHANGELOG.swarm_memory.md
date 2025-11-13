@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated documentation to reference `Workflow` instead of `NodeOrchestrator`
+- Memory configuration preserved when agents are cloned in `Workflow` (formerly `NodeOrchestrator`)
+- No functional changes - fully compatible with SwarmSDK refactoring
+
 ## [2.1.3] - 2025-11-06
 
 ### Added

@@ -149,10 +149,10 @@ module SwarmSDK
     end
 
     def test_type_with_string_keys
-      data = { "type" => "node_orchestrator" }
+      data = { "type" => "workflow" }
       snapshot = Snapshot.new(data)
 
-      assert_equal("node_orchestrator", snapshot.type)
+      assert_equal("workflow", snapshot.type)
     end
 
     def test_snapshot_at_accessor
@@ -225,15 +225,15 @@ module SwarmSDK
 
     def test_swarm_predicate_returns_true_for_swarm
       assert_predicate(@snapshot, :swarm?)
-      refute_predicate(@snapshot, :node_orchestrator?)
+      refute_predicate(@snapshot, :workflow?)
     end
 
-    def test_node_orchestrator_predicate_returns_true_for_node_orchestrator
-      data = { type: "node_orchestrator" }
+    def test_workflow_predicate_returns_true_for_workflow
+      data = { type: "workflow" }
       snapshot = Snapshot.new(data)
 
       refute_predicate(snapshot, :swarm?)
-      assert_predicate(snapshot, :node_orchestrator?)
+      assert_predicate(snapshot, :workflow?)
     end
 
     def test_round_trip_with_file
@@ -264,7 +264,7 @@ module SwarmSDK
       assert_empty(snapshot.agent_names)
       assert_empty(snapshot.delegation_instance_names)
       refute_predicate(snapshot, :swarm?)
-      refute_predicate(snapshot, :node_orchestrator?)
+      refute_predicate(snapshot, :workflow?)
     end
   end
 end

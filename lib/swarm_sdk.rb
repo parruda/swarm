@@ -45,9 +45,18 @@ module SwarmSDK
     # Settings for SwarmSDK (global configuration)
     attr_accessor :settings
 
-    # Main entry point for DSL
+    # Main entry point for DSL - builds simple multi-agent swarms
+    #
+    # @return [Swarm] Always returns a Swarm instance
     def build(allow_filesystem_tools: nil, &block)
       Swarm::Builder.build(allow_filesystem_tools: allow_filesystem_tools, &block)
+    end
+
+    # Entry point for building multi-stage workflows
+    #
+    # @return [Workflow] Always returns a Workflow instance
+    def workflow(allow_filesystem_tools: nil, &block)
+      Workflow::Builder.build(allow_filesystem_tools: allow_filesystem_tools, &block)
     end
 
     # Validate YAML configuration without creating a swarm
@@ -149,7 +158,7 @@ module SwarmSDK
     #
     # @param yaml_content [String] YAML configuration content
     # @param base_dir [String, Pathname] Base directory for resolving agent file paths (default: Dir.pwd)
-    # @return [Swarm, NodeOrchestrator] Configured swarm or orchestrator instance
+    # @return [Swarm, Workflow] Configured swarm or workflow instance
     # @raise [ConfigurationError] If YAML is invalid or configuration is incorrect
     #
     # @example Load from YAML string
@@ -194,7 +203,7 @@ module SwarmSDK
     # loading swarms from configuration files.
     #
     # @param path [String, Pathname] Path to YAML configuration file
-    # @return [Swarm, NodeOrchestrator] Configured swarm or orchestrator instance
+    # @return [Swarm, Workflow] Configured swarm or workflow instance
     # @raise [ConfigurationError] If file not found or configuration invalid
     #
     # @example

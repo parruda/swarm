@@ -61,6 +61,10 @@ module SwarmSDK
   # - McpConfigurator: MCP client management (via AgentInitializer)
   #
   class Swarm
+    include Concerns::Snapshotable
+    include Concerns::Validatable
+    include Concerns::Cleanupable
+
     DEFAULT_GLOBAL_CONCURRENCY = 50
     DEFAULT_LOCAL_CONCURRENCY = 10
     DEFAULT_MCP_LOG_LEVEL = Logger::WARN
@@ -457,14 +461,14 @@ module SwarmSDK
         # Reset logging state for next execution if we set it up
         #
         # IMPORTANT: Only reset if we set up logging (has_logging == true).
-        # When this swarm is a mini-swarm within a NodeOrchestrator workflow,
-        # the orchestrator manages LogCollector and we don't set up logging.
+        # When this swarm is a mini-swarm within a Workflow,
+        # the workflow manages LogCollector and we don't set up logging.
         #
-        # Flow in NodeOrchestrator:
-        # 1. NodeOrchestrator sets up LogCollector + LogStream (no block given to mini-swarms)
+        # Flow in Workflow:
+        # 1. Workflow sets up LogCollector + LogStream (no block given to mini-swarms)
         # 2. Each mini-swarm executes without logging block (has_logging == false)
         # 3. Each mini-swarm skips reset (didn't set up logging)
-        # 4. NodeOrchestrator resets once at the very end
+        # 4. Workflow resets once at the very end
         #
         # Flow in standalone swarm / interactive REPL:
         # 1. Swarm.execute sets up LogCollector + LogStream (block given)
@@ -528,86 +532,17 @@ module SwarmSDK
       @agent_definitions.keys
     end
 
-    # Validate swarm configuration and return warnings
-    #
-    # This performs lightweight validation checks without creating agents.
-    # Useful for displaying configuration warnings before execution.
-    #
-    # @return [Array<Hash>] Array of warning hashes from all agent definitions
-    #
-    # @example
-    #   swarm = SwarmSDK.load_file("config.yml")
-    #   warnings = swarm.validate
-    #   warnings.each do |warning|
-    #     puts "⚠️  #{warning[:agent]}: #{warning[:model]} not found"
-    #   end
-    def validate
-      @agent_definitions.flat_map { |_name, definition| definition.validate }
+    # Implement Snapshotable interface
+    def primary_agents
+      @agents
     end
 
-    # Emit validation warnings as log events
-    #
-    # This validates all agent definitions and emits any warnings as
-    # model_lookup_warning events through LogStream. Useful for emitting
-    # warnings before execution starts (e.g., in REPL after welcome screen).
-    #
-    # Requires LogStream.emitter to be set.
-    #
-    # @return [Array<Hash>] The validation warnings that were emitted
-    #
-    # @example
-    #   LogCollector.on_log { |event| puts event }
-    #   LogStream.emitter = LogCollector
-    #   swarm.emit_validation_warnings
-    def emit_validation_warnings
-      warnings = validate
-
-      warnings.each do |warning|
-        case warning[:type]
-        when :model_not_found
-          LogStream.emit(
-            type: "model_lookup_warning",
-            agent: warning[:agent],
-            swarm_id: @swarm_id,
-            parent_swarm_id: @parent_swarm_id,
-            model: warning[:model],
-            error_message: warning[:error_message],
-            suggestions: warning[:suggestions],
-            timestamp: Time.now.utc.iso8601,
-          )
-        end
-      end
-
-      warnings
+    def delegation_instances_hash
+      @delegation_instances
     end
 
-    # Cleanup all MCP clients
-    #
-    # Stops all MCP client connections gracefully.
-    # Should be called when the swarm is no longer needed.
-    #
-    # @return [void]
-    def cleanup
-      # Check if there's anything to clean up
-      return if @mcp_clients.empty? && (!@delegation_instances || @delegation_instances.empty?)
-
-      # Stop MCP clients for all agents (primaries + delegations tracked by instance name)
-      @mcp_clients.each do |agent_name, clients|
-        clients.each do |client|
-          # Always call stop - this sets @running = false and stops background threads
-          client.stop
-          RubyLLM.logger.debug("SwarmSDK: Stopped MCP client '#{client.name}' for agent #{agent_name}")
-        rescue StandardError => e
-          # Don't fail cleanup if stopping one client fails
-          RubyLLM.logger.debug("SwarmSDK: Error stopping MCP client '#{client.name}': #{e.message}")
-        end
-      end
-
-      @mcp_clients.clear
-
-      # Clear delegation instances (V7.0: Added for completeness)
-      @delegation_instances&.clear
-    end
+    # NOTE: validate() and emit_validation_warnings() are provided by Concerns::Validatable
+    # Note: cleanup() is provided by Concerns::Cleanupable
 
     # Register a named hook that can be referenced in agent configurations
     #
@@ -751,7 +686,7 @@ module SwarmSDK
     # Validate and normalize scratchpad mode for Swarm
     #
     # Regular Swarms support :enabled or :disabled.
-    # Rejects :per_node since it only makes sense for NodeOrchestrator with multiple nodes.
+    # Rejects :per_node since it only makes sense for Workflow with multiple nodes.
     #
     # @param value [Symbol, String] Scratchpad mode (strings from YAML converted to symbols)
     # @return [Symbol] :enabled or :disabled
@@ -765,7 +700,7 @@ module SwarmSDK
         value
       when :per_node
         raise ArgumentError,
-          "scratchpad: :per_node is only valid for NodeOrchestrator with nodes. " \
+          "scratchpad: :per_node is only valid for Workflow with nodes. " \
             "For regular Swarms, use :enabled or :disabled."
       else
         raise ArgumentError,

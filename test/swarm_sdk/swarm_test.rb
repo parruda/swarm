@@ -953,7 +953,7 @@ module SwarmSDK
         end
       end
 
-      assert_match(/:per_node is only valid for NodeOrchestrator/, error.message)
+      assert_match(/:per_node is only valid for Workflow/, error.message)
       assert_match(/use :enabled or :disabled/, error.message)
     end
 

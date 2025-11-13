@@ -3,7 +3,7 @@
 require "test_helper"
 
 module SwarmSDK
-  class NodeOrchestratorTest < Minitest::Test
+  class WorkflowTest < Minitest::Test
     def setup
       # Reset logging state before each test (in case previous test failed)
       begin
@@ -38,7 +38,7 @@ module SwarmSDK
     end
 
     def test_basic_two_node_workflow
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Planning and Implementation")
 
         agent(:planner) do
@@ -71,8 +71,8 @@ module SwarmSDK
         start_node(:planning)
       end
 
-      # Verify it's a NodeOrchestrator
-      assert_instance_of(NodeOrchestrator, swarm)
+      # Verify it's a Workflow
+      assert_instance_of(Workflow, swarm)
 
       # Verify configuration
       assert_equal("Planning and Implementation", swarm.swarm_name)
@@ -96,7 +96,7 @@ module SwarmSDK
     end
 
     def test_node_with_delegation
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Complex Workflow")
 
         agent(:lead) do
@@ -154,7 +154,7 @@ module SwarmSDK
     end
 
     def test_explicit_lead_in_node
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Lead Override")
 
         agent(:agent1) do
@@ -188,7 +188,7 @@ module SwarmSDK
     end
 
     def test_input_and_output_transformers
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Transformer Test")
 
         agent(:agent1) do
@@ -238,7 +238,7 @@ module SwarmSDK
 
     def test_missing_start_node_raises_error
       error = assert_raises(ConfigurationError) do
-        SwarmSDK.build do
+        SwarmSDK.workflow do
           name("Missing Start")
 
           agent(:agent1) do
@@ -257,12 +257,12 @@ module SwarmSDK
         end
       end
 
-      assert_match(/start_node required/, error.message)
+      assert_match(/start_node not set/, error.message)
     end
 
     def test_invalid_start_node_raises_error
       error = assert_raises(ConfigurationError) do
-        SwarmSDK.build do
+        SwarmSDK.workflow do
           name("Invalid Start")
 
           agent(:agent1) do
@@ -286,7 +286,7 @@ module SwarmSDK
 
     def test_undefined_agent_in_node_raises_error
       error = assert_raises(ConfigurationError) do
-        SwarmSDK.build do
+        SwarmSDK.workflow do
           name("Undefined Agent")
 
           agent(:agent1) do
@@ -310,7 +310,7 @@ module SwarmSDK
 
     def test_circular_dependency_raises_error
       error = assert_raises(CircularDependencyError) do
-        SwarmSDK.build do
+        SwarmSDK.workflow do
           name("Circular")
 
           agent(:agent1) do
@@ -340,7 +340,7 @@ module SwarmSDK
     end
 
     def test_halt_workflow_from_input_transformer
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Halt Workflow")
 
         # Use agent-less node to avoid LLM calls
@@ -370,7 +370,7 @@ module SwarmSDK
     end
 
     def test_goto_node_from_output_transformer
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Goto Node Workflow")
 
         # Use agent-less nodes to avoid LLM calls
@@ -410,7 +410,7 @@ module SwarmSDK
     end
 
     def test_skip_execution_with_context_method
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Skip Execution")
 
         # Use node with agent but skip execution based on input
@@ -448,7 +448,7 @@ module SwarmSDK
 
     def test_node_without_agents_or_transformers_raises_error
       error = assert_raises(ConfigurationError) do
-        SwarmSDK.build do
+        SwarmSDK.workflow do
           name("Empty Node")
 
           agent(:agent1) do
@@ -485,13 +485,13 @@ module SwarmSDK
         end
       end
 
-      # Should be a regular Swarm, not NodeOrchestrator
+      # Should be a regular Swarm, not Workflow
       assert_instance_of(Swarm, swarm)
       assert_equal(:agent1, swarm.lead_agent)
     end
 
     def test_agent_less_node_with_output_transformer
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Agent-less Test")
 
         agent(:agent1) do
@@ -521,7 +521,7 @@ module SwarmSDK
         start_node(:llm_node)
       end
 
-      assert_instance_of(NodeOrchestrator, swarm)
+      assert_instance_of(Workflow, swarm)
 
       # Verify computation node is agent-less
       computation_node = swarm.nodes[:computation]
@@ -531,7 +531,7 @@ module SwarmSDK
     end
 
     def test_agent_less_node_with_input_transformer
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Agent-less Input Test")
 
         agent(:agent1) do
@@ -573,7 +573,7 @@ module SwarmSDK
 
     def test_agent_less_node_without_transformers_raises_error
       error = assert_raises(ConfigurationError) do
-        SwarmSDK.build do
+        SwarmSDK.workflow do
           name("Invalid Agent-less")
 
           agent(:agent1) do
@@ -600,7 +600,7 @@ module SwarmSDK
     end
 
     def test_agent_less_node_only_input_transformer
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Agent-less Input Only")
 
         agent(:agent1) do
@@ -633,7 +633,7 @@ module SwarmSDK
     end
 
     def test_skip_execution_from_input_transformer
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Skip Execution Test")
 
         agent(:agent1) do
@@ -661,14 +661,14 @@ module SwarmSDK
         start_node(:first)
       end
 
-      assert_instance_of(NodeOrchestrator, swarm)
+      assert_instance_of(Workflow, swarm)
       cached_node = swarm.nodes[:cached]
 
       refute_predicate(cached_node, :agent_less?)
     end
 
     def test_skip_execution_with_validation
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Validation Skip Test")
 
         agent(:agent1) do
@@ -707,7 +707,7 @@ module SwarmSDK
 
     def test_skip_execution_with_string_keys
       # Test that string keys also work (not just symbol keys)
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("String Keys Test")
 
         agent(:agent1) do
@@ -735,11 +735,11 @@ module SwarmSDK
         start_node(:first)
       end
 
-      assert_instance_of(NodeOrchestrator, swarm)
+      assert_instance_of(Workflow, swarm)
     end
 
     def test_conditional_skip_execution
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Conditional Skip Test")
 
         agent(:agent1) do
@@ -778,7 +778,7 @@ module SwarmSDK
 
     def test_agent_less_nodes_emit_events_without_http_calls
       # Test node events using only agent-less nodes (no HTTP calls)
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Agent-less Event Test")
 
         node(:parse) do
@@ -833,7 +833,7 @@ module SwarmSDK
     end
 
     def test_skip_execution_sets_skipped_flag_in_event
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Skip Flag Test")
 
         node(:first) do
@@ -865,7 +865,7 @@ module SwarmSDK
 
     def test_auto_add_delegate_agents
       # Agents mentioned in delegates_to should be automatically added to the node
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Auto-add Test")
 
         agent(:backend) do
@@ -927,7 +927,7 @@ module SwarmSDK
 
     def test_auto_add_preserves_explicit_delegation
       # If an agent is explicitly declared with delegation, don't override it
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Preserve Delegation Test")
 
         agent(:a) do
@@ -981,7 +981,7 @@ module SwarmSDK
 
     def test_reset_context_default_behavior
       # Test that by default, agents get fresh context in each node
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Fresh Context Test")
 
         agent(:agent1) do
@@ -1014,7 +1014,7 @@ module SwarmSDK
 
     def test_reset_context_false_preserves_config
       # Test that reset_context: false is properly stored in config
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Preserve Context Test")
 
         agent(:agent1) do
@@ -1047,7 +1047,7 @@ module SwarmSDK
 
     def test_reset_context_mixed_usage
       # Test that some agents can preserve context while others get fresh context
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Mixed Context Test")
 
         agent(:architect) do
@@ -1100,7 +1100,7 @@ module SwarmSDK
 
     # Tests for scratchpad modes
     def test_scratchpad_enabled_mode_shares_across_nodes
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Scratchpad Enabled Test")
         scratchpad(:enabled)
 
@@ -1146,7 +1146,7 @@ module SwarmSDK
     end
 
     def test_scratchpad_per_node_mode_isolates_nodes
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Scratchpad Per-Node Test")
         scratchpad(:per_node)
 
@@ -1186,7 +1186,7 @@ module SwarmSDK
     end
 
     def test_scratchpad_disabled_mode_returns_nil
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Scratchpad Disabled Test")
         scratchpad(:disabled)
 
@@ -1217,7 +1217,7 @@ module SwarmSDK
 
     # Tests for per-node tool overrides
     def test_per_node_tool_override_dsl
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Tool Override Test")
 
         agent(:backend) do
@@ -1309,7 +1309,7 @@ module SwarmSDK
     end
 
     def test_per_node_nil_tools_uses_global
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Default Tools Test")
 
         agent(:backend) do
@@ -1335,7 +1335,7 @@ module SwarmSDK
     end
 
     def test_per_node_tool_override_combined_with_delegation
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Combined Override Test")
 
         agent(:backend) do

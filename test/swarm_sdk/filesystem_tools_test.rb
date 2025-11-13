@@ -296,11 +296,11 @@ class FilesystemToolsTest < Minitest::Test
     refute(swarm.allow_filesystem_tools)
   end
 
-  def test_node_orchestrator_respects_filesystem_tools_setting
+  def test_workflow_respects_filesystem_tools_setting
     SwarmSDK.settings.allow_filesystem_tools = false
 
     error = assert_raises(SwarmSDK::ConfigurationError) do
-      SwarmSDK.build do
+      SwarmSDK.workflow do
         name("Test Workflow")
 
         agent(:dev) do
