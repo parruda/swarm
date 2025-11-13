@@ -112,7 +112,7 @@ snapshot.write_to_file("session.json")
 snapshot.write_to_file("session.json", pretty: false)
 
 # Access metadata
-snapshot.version              # => "1.0.0"
+snapshot.version: 2.0.0"
 snapshot.type                 # => "swarm" or "workflow"
 snapshot.snapshot_at          # => "2025-01-03T14:30:00Z"
 snapshot.swarm_sdk_version    # => "2.1.3"
@@ -137,7 +137,7 @@ json_string = redis.get("session:#{user_id}")
 snapshot = SwarmSDK::Snapshot.from_json(json_string)
 
 # From hash
-hash = { version: "1.0.0", type: "swarm", ... }
+hash = { version: 2.0.0", type: "swarm", ... }
 snapshot = SwarmSDK::Snapshot.from_hash(hash)
 ```
 
@@ -639,7 +639,7 @@ Snapshot.from_json(json_string)       # => Snapshot
 Snapshot.from_hash(hash)              # => Snapshot
 
 # Metadata accessors
-snapshot.version                      # => "1.0.0"
+snapshot.version: 2.0.0"
 snapshot.type                         # => "swarm" | "workflow"
 snapshot.snapshot_at                  # => "2025-01-03T14:30:00Z"
 snapshot.swarm_sdk_version            # => "2.1.3"
