@@ -17,6 +17,11 @@ require "async/semaphore"
 require "ruby_llm"
 require "ruby_llm/mcp"
 
+# Configure Faraday to use async-http adapter by default
+# This ensures HTTP requests are fiber-aware and don't block the Async scheduler
+# when SwarmSDK executes LLM requests within Async/Sync blocks
+require "async/http/faraday/default"
+
 require_relative "swarm_sdk/version"
 
 require "zeitwerk"

@@ -35,6 +35,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency("async", "~> 2.0")
+  spec.add_dependency("async-http-faraday", "~> 0.22")
   spec.add_dependency("ruby_llm", "~> 1.9")
   spec.add_dependency("ruby_llm-mcp", "~> 0.7")
   spec.add_dependency("zeitwerk", "~> 2.6")

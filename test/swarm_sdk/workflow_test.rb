@@ -1259,9 +1259,8 @@ module SwarmSDK
     def test_per_node_tool_override_yaml
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: Tool Override YAML
-          lead: backend
 
           agents:
             backend:

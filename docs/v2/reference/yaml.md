@@ -6,13 +6,13 @@ Complete YAML configuration reference for SwarmSDK v2.
 
 ## Document Structure
 
-SwarmSDK v2 configurations support two types:
+SwarmSDK v2 configurations support two types, distinguished by the root key:
 
 ### Simple Swarm (Multi-Agent Collaboration)
 
 ```yaml
 version: 2
-swarm:
+swarm:                    # Use 'swarm:' key for swarms
   name: "Development Team"
   lead: backend           # Required for swarms
   agents:
@@ -28,7 +28,7 @@ swarm:
 
 ```yaml
 version: 2
-swarm:
+workflow:                 # Use 'workflow:' key for workflows
   name: "Build Pipeline"
   start_node: planning    # Required for workflows
   agents:
@@ -36,7 +36,7 @@ swarm:
       # Agent configuration
     coder:
       # Agent configuration
-  nodes:                  # Presence of nodes creates Workflow
+  nodes:                  # Required for workflows
     planning:
       agents:
         - agent: architect
@@ -49,10 +49,11 @@ swarm:
 
 **Returns:** `SwarmSDK::Workflow` when loaded with `SwarmSDK.load_file`
 
-**Automatic Detection:**
-- If `nodes:` is present → Creates `Workflow`
-- If `nodes:` is absent → Creates `Swarm`
-- Same YAML loading API works for both types!
+**Type Detection:**
+- `swarm:` key → Creates `SwarmSDK::Swarm` (requires `lead:`, cannot have `nodes:`)
+- `workflow:` key → Creates `SwarmSDK::Workflow` (requires `start_node:` and `nodes:`)
+- Cannot have both `swarm:` and `workflow:` keys in same file
+- Same `SwarmSDK.load_file` API works for both types!
 
 ---
 
@@ -72,8 +73,10 @@ version: 2
 
 ### swarm
 
-**Type:** Object (required)
-**Description:** Root configuration object containing all swarm settings.
+**Type:** Object (required for Swarm type)
+**Description:** Root configuration object for multi-agent collaboration swarms. Use this key when you want agents to collaborate through delegation.
+
+**Mutually exclusive with:** `workflow:`
 
 ```yaml
 swarm:
@@ -85,9 +88,28 @@ swarm:
 
 ---
 
+### workflow
+
+**Type:** Object (required for Workflow type)
+**Description:** Root configuration object for multi-stage pipeline workflows. Use this key when you want to orchestrate agents through sequential or parallel nodes.
+
+**Mutually exclusive with:** `swarm:`
+
+```yaml
+workflow:
+  name: "Build Pipeline"
+  start_node: planning
+  agents:
+    # ...
+  nodes:
+    # ...
+```
+
+---
+
 ## Swarm Configuration
 
-Fields under the `swarm` key.
+Fields under the `swarm` key (for Swarm type configurations).
 
 ### id
 
@@ -253,25 +275,21 @@ swarm:
   scratchpad: enabled   # enable scratchpad
   scratchpad: disabled  # no scratchpad (default)
 
-# With nodes - shared across all nodes
-swarm:
+# Workflow - shared across all nodes
+workflow:
   scratchpad: enabled
-
+  start_node: planning
   nodes:
     planning: { ... }
     implementation: { ... }
 
-  start_node: planning
-
-# With nodes - isolated per node
-swarm:
+# Workflow - isolated per node
+workflow:
   scratchpad: per_node
-
+  start_node: planning
   nodes:
     planning: { ... }
     implementation: { ... }
-
-  start_node: planning
 ```
 
 ---
@@ -342,33 +360,44 @@ swarm:
 
 ### nodes
 
-**Type:** Object (optional)
+**Type:** Object (required for Workflow type)
 **Description:** Map of node names to node configurations. Enables multi-stage workflows with multiple execution stages.
 **Format:** `{ node_name: node_config }`
+
+**Important:** This field is only valid under the `workflow:` key, not `swarm:`.
 
 Nodes allow you to create workflows where different agent teams collaborate in sequence. Each node is an independent swarm execution that can receive input from previous nodes and pass output to subsequent nodes.
 
 **Example:**
 ```yaml
-nodes:
-  planning:
-    agents:
-      - agent: architect
-    output_command: "tee plan.txt"
+workflow:
+  name: "Build Pipeline"
+  start_node: planning
+  agents:
+    architect: { ... }
+    backend: { ... }
+    tester: { ... }
+    reviewer: { ... }
 
-  implementation:
-    agents:
-      - agent: backend
-        delegates_to: [tester]
-        tools: [Read, Edit, Write]  # Override tools for this node
-      - agent: tester
-    dependencies: [planning]
-    input_command: "cat plan.txt"
+  nodes:
+    planning:
+      agents:
+        - agent: architect
+      output_command: "tee plan.txt"
 
-  review:
-    agents:
-      - agent: reviewer
-    dependencies: [implementation]
+    implementation:
+      agents:
+        - agent: backend
+          delegates_to: [tester]
+          tools: [Read, Edit, Write]  # Override tools for this node
+        - agent: tester
+      dependencies: [planning]
+      input_command: "cat plan.txt"
+
+    review:
+      agents:
+        - agent: reviewer
+      dependencies: [implementation]
 ```
 
 **Node configuration fields:**
@@ -405,14 +434,16 @@ nodes:
 
 ### start_node
 
-**Type:** String (required if nodes defined)
+**Type:** String (required for Workflow type)
 **Description:** Name of the starting node for workflow execution.
+
+**Important:** This field is only valid under the `workflow:` key, not `swarm:`.
 
 **Example:**
 ```yaml
-swarm:
+workflow:
   name: "Dev Workflow"
-  lead: coordinator
+  start_node: planning  # Required: Start with planning node
   agents:
     coordinator:
       description: "Coordinator"
@@ -428,7 +459,6 @@ swarm:
       agents:
         - agent: backend
       dependencies: [planning]
-  start_node: planning  # Start with planning node
 ```
 
 ---
@@ -1612,7 +1642,7 @@ agents:
 
 ## Node Configuration
 
-Fields under each node in `swarm.nodes`.
+Fields under each node in `workflow.nodes`.
 
 ### agents
 
@@ -1933,7 +1963,11 @@ permissions:
 
 ---
 
-## Complete Example
+## Complete Examples
+
+### Complete Swarm Example
+
+A multi-agent collaboration swarm where agents delegate tasks to each other:
 
 ```yaml
 version: 2
@@ -2072,8 +2106,65 @@ swarm:
 
       parameters:
         temperature: 0.2
+```
 
-  # Multi-stage workflow
+---
+
+### Complete Workflow Example
+
+A multi-stage pipeline workflow with sequential and parallel node execution:
+
+```yaml
+version: 2
+
+workflow:
+  name: "Development Pipeline"
+  start_node: planning
+
+  # Global configuration for all agents
+  all_agents:
+    provider: openai
+    timeout: 180
+    coding_agent: true
+
+  # Agent definitions (shared across nodes)
+  agents:
+    coordinator:
+      description: "Lead coordinator for planning"
+      model: gpt-5
+      system_prompt: "You create detailed project plans"
+      tools: [Read, TodoWrite]
+
+    backend:
+      description: "Backend developer specializing in Ruby on Rails"
+      model: claude-sonnet-4
+      provider: anthropic
+      directory: "backend"
+      system_prompt: "You build clean, testable backend APIs"
+      tools: [Read, Write, Edit, Bash]
+      delegates_to: [database]
+
+    frontend:
+      description: "Frontend developer specializing in React"
+      model: gpt-5
+      directory: "frontend"
+      system_prompt: "You build modern, accessible frontends"
+      tools: [Read, Write, Edit, Bash]
+
+    database:
+      description: "Database expert for schema design"
+      model: gpt-5
+      directory: "backend"
+      system_prompt: "You design efficient database schemas"
+      tools: [Read, Write, Bash]
+
+    reviewer:
+      description: "Code reviewer checking for bugs"
+      model: o4
+      system_prompt: "You review code for quality and security"
+      tools: [Read, Grep, Glob]
+
+  # Multi-stage workflow nodes
   nodes:
     planning:
       agents:
@@ -2101,8 +2192,6 @@ swarm:
       dependencies: [backend_implementation, frontend_implementation]
       input_command: "scripts/gather-changes.sh"
       output_command: "scripts/format-review.sh"
-
-  start_node: planning
 ```
 
 ---

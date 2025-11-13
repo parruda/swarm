@@ -20,9 +20,8 @@ module SwarmSDK
     def test_basic_node_configuration
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend developer"
@@ -64,9 +63,8 @@ module SwarmSDK
     def test_node_dependencies
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: architect
           agents:
             architect:
               description: "Architect"
@@ -112,9 +110,8 @@ module SwarmSDK
     def test_node_with_delegation
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -151,9 +148,8 @@ module SwarmSDK
     def test_node_with_lead_override
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -188,9 +184,8 @@ module SwarmSDK
     def test_node_with_transformers
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -226,9 +221,8 @@ module SwarmSDK
     def test_missing_start_node_raises_error
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -246,16 +240,15 @@ module SwarmSDK
         config.load_and_validate
       end
 
-      assert_match(/start_node required/i, error.message)
+      assert_match(/start_node.*field/i, error.message)
     end
 
     # Test: Invalid start_node raises error
     def test_invalid_start_node_raises_error
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -280,9 +273,8 @@ module SwarmSDK
     def test_node_with_undefined_agent_raises_error
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -307,9 +299,8 @@ module SwarmSDK
     def test_node_with_undefined_dependency_raises_error
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -336,9 +327,8 @@ module SwarmSDK
     def test_node_with_reset_context
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -374,9 +364,8 @@ module SwarmSDK
     def test_agent_less_node_with_transformers
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Test Swarm"
-          lead: backend
           agents:
             backend:
               description: "Backend"
@@ -412,9 +401,8 @@ module SwarmSDK
     def test_complex_multi_node_workflow
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Development Team"
-          lead: coordinator
           agents:
             coordinator:
               description: "Coordinator"

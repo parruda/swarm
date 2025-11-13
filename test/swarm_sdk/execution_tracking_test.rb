@@ -92,9 +92,8 @@ module SwarmSDK
     def test_node_workflow_execution_id_inheritance
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Build System"
-          lead: planner
           agents:
             planner:
               model: gpt-4o-mini
@@ -266,9 +265,8 @@ module SwarmSDK
     def test_context_ownership_in_nested_swarms
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Dev Team"
-          lead: worker
           agents:
             worker:
               model: gpt-4o-mini
@@ -341,9 +339,8 @@ module SwarmSDK
     def test_execution_id_format_workflow
       yaml = <<~YAML
         version: 2
-        swarm:
+        workflow:
           name: "Workflow"
-          lead: worker
           agents:
             worker:
               model: gpt-4o-mini
