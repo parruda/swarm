@@ -113,7 +113,7 @@ snapshot.write_to_file("session.json", pretty: false)
 
 # Access metadata
 snapshot.version              # => "1.0.0"
-snapshot.type                 # => "swarm" or "node_orchestrator"
+snapshot.type                 # => "swarm" or "workflow"
 snapshot.snapshot_at          # => "2025-01-03T14:30:00Z"
 snapshot.swarm_sdk_version    # => "2.1.3"
 snapshot.agent_names          # => ["backend", "database"]
@@ -121,7 +121,7 @@ snapshot.delegation_instance_names  # => ["database@backend"]
 
 # Type checks
 snapshot.swarm?               # => true
-snapshot.node_orchestrator?   # => false
+snapshot.workflow?   # => false
 ```
 
 ### Loading Snapshots
@@ -616,7 +616,7 @@ result = swarm.restore(hash)
 result = swarm.restore(json_string)
 ```
 
-### NodeOrchestrator Methods
+### Workflow Methods
 
 Same API as Swarm:
 
@@ -640,7 +640,7 @@ Snapshot.from_hash(hash)              # => Snapshot
 
 # Metadata accessors
 snapshot.version                      # => "1.0.0"
-snapshot.type                         # => "swarm" | "node_orchestrator"
+snapshot.type                         # => "swarm" | "workflow"
 snapshot.snapshot_at                  # => "2025-01-03T14:30:00Z"
 snapshot.swarm_sdk_version            # => "2.1.3"
 snapshot.agent_names                  # => ["agent1", "agent2"]
@@ -648,7 +648,7 @@ snapshot.delegation_instance_names    # => ["agent2@agent1"]
 
 # Type checks
 snapshot.swarm?                       # => true | false
-snapshot.node_orchestrator?           # => true | false
+snapshot.workflow?           # => true | false
 ```
 
 ### SnapshotFromEvents Class
@@ -799,10 +799,10 @@ swarm.restore(snapshot)
 result = swarm.execute("Implement API endpoints using different pattern")
 ```
 
-### NodeOrchestrator Workflows
+### Workflow Workflows
 
 ```ruby
-orchestrator = SwarmSDK::NodeOrchestrator.new(
+orchestrator = SwarmSDK::Workflow.new(
   swarm_name: "Dev Workflow",
   agent_definitions: { planner: planner_def, coder: coder_def },
   nodes: { planning: planning_node, coding: coding_node },
@@ -819,7 +819,7 @@ snapshot.write_to_file("workflow_session.json")
 # === Later, new process ===
 
 # Restore and continue
-orchestrator = SwarmSDK::NodeOrchestrator.new(...)  # Same config
+orchestrator = SwarmSDK::Workflow.new(...)  # Same config
 snapshot = SwarmSDK::Snapshot.from_file("workflow_session.json")
 orchestrator.restore(snapshot)
 
@@ -1283,7 +1283,7 @@ swarm2.execute("Read scratchpad://tasks/auth.md")
 # => Agent sees content from previous session
 ```
 
-**Note**: NodeOrchestrator doesn't snapshot scratchpad because each node creates its own fresh scratchpad.
+**Note**: Workflow doesn't snapshot scratchpad because each node creates its own fresh scratchpad.
 
 ## Troubleshooting
 
@@ -1340,9 +1340,9 @@ result = swarm.restore(snapshot)
 
 ### Type Mismatch
 
-**Problem**: `Snapshot type 'swarm' doesn't match orchestration type 'node_orchestrator'`
+**Problem**: `Snapshot type 'swarm' doesn't match orchestration type 'workflow'`
 
-**Cause**: Trying to restore swarm snapshot into NodeOrchestrator (or vice versa)
+**Cause**: Trying to restore swarm snapshot into Workflow (or vice versa)
 
 **Solution**: Use correct orchestration type that matches snapshot
 

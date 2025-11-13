@@ -125,7 +125,7 @@ old[:metadata] = old.delete(:swarm)
   - **Example**: `agent(:planner).tools(:Think, :Read)` in planning node, `agent(:planner).tools(:Write, :Edit, :Bash)` in implementation node
   - **Implementation**: New `tools(*tool_names)` method on `AgentConfig`, stored in node configuration as tool override
   - **Backward compatible**: Omit `.tools()` to use agent's global tool configuration
-  - **Files**: `lib/swarm_sdk/node/agent_config.rb`, `lib/swarm_sdk/node/builder.rb`, `lib/swarm_sdk/node_orchestrator.rb`
+  - **Files**: `lib/swarm_sdk/workflow/agent_config.rb`, `lib/swarm_sdk/workflow/node_builder.rb`, `lib/swarm_sdk/workflow.rb`
 
 ### Changed
 
@@ -269,7 +269,7 @@ old[:metadata] = old.delete(:swarm)
     - Enables calculating total cost/tokens for a single execution
     - Allows building complete execution traces across all agents and tools
   - **`swarm_id`**: Identifies which swarm/node emitted the event
-    - Hierarchical format for NodeOrchestrator nodes (e.g., `workflow/node:planning`)
+    - Hierarchical format for Workflow nodes (e.g., `workflow/node:planning`)
     - Tracks execution flow through nested swarms and workflow stages
   - **`parent_swarm_id`**: Identifies the parent swarm for nested execution contexts
   - **Fiber-local storage implementation**: Uses Ruby 3.2+ Fiber storage for automatic propagation
@@ -314,7 +314,7 @@ old[:metadata] = old.delete(:swarm)
   - **Tool state isolation**: TodoWrite, ReadTracker, and other stateful tools isolated per instance
   - **Nested delegation support**: Works correctly with multi-level delegation chains
   - **Fiber-safe concurrency**: Added `Async::Semaphore` to `Chat.ask()` to prevent message corruption when multiple delegation instances call shared agents in parallel
-  - **Atomic caching**: NodeOrchestrator caches delegation instances together with primary agents for context preservation
+  - **Atomic caching**: Workflow caches delegation instances together with primary agents for context preservation
   - **Agent name validation**: Agent names cannot contain '@' character (reserved for delegation instances)
   - **Automatic deduplication**: Duplicate entries in `delegates_to` are automatically removed
   - **Comprehensive test coverage**: 17 new tests covering isolated mode, shared mode, nested delegation, cleanup, and more
@@ -454,7 +454,7 @@ old[:metadata] = old.delete(:swarm)
 - **Context Preservation Across Nodes**: `reset_context` parameter for node agents
   - `agent(:name, reset_context: false)` preserves conversation history across nodes
   - Default: `reset_context: true` (fresh context for each node - safe default)
-  - NodeOrchestrator caches and reuses agent instances when `reset_context: false`
+  - Workflow caches and reuses agent instances when `reset_context: false`
   - Enables stateful workflows where agents remember previous node conversations
   - Perfect for iterative refinement, self-reflection loops, and chain-of-thought reasoning
 
@@ -470,15 +470,15 @@ old[:metadata] = old.delete(:swarm)
   - Removes memory-specific code from SwarmSDK core (moved to SwarmMemory plugin)
   - Maintains backward compatibility - permissions remain in core SDK (not plugin-specific)
   - Enables clean separation between core SDK and plugin features (memory, skills, etc.)
-  - Plugins can preserve their configuration when agents are cloned in NodeOrchestrator
+  - Plugins can preserve their configuration when agents are cloned in Workflow
 
-- **NodeOrchestrator**: Configurable scratchpad sharing modes
+- **Workflow**: Configurable scratchpad sharing modes
   - `scratchpad: :enabled` - Share scratchpad across all nodes
   - `scratchpad: :per_node` - Isolated scratchpad per node
   - `scratchpad: :disabled` - No scratchpad tools (default)
 
-- **CLI ConfigLoader**: Accepts both Swarm and NodeOrchestrator instances
-  - Bug fix: CLI now correctly handles NodeOrchestrator execution
+- **CLI ConfigLoader**: Accepts both Swarm and Workflow instances
+  - Bug fix: CLI now correctly handles Workflow execution
   - Enables node workflows to work seamlessly with CLI commands
 
 - **Error handling in Agent::Chat**: More robust exception handling
