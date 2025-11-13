@@ -76,14 +76,14 @@ module SwarmSDK
 
     def test_version_validation_with_wrong_version
       snapshot_data = create_valid_snapshot_hash
-      snapshot_data[:version] = "2.0.0"
+      snapshot_data[:version] = "1.0.0" # Old version is now wrong
       mock_swarm = create_mock_swarm(agents: [:alice])
 
       error = assert_raises(StateError) do
         StateRestorer.new(mock_swarm, snapshot_data)
       end
 
-      assert_match(/Unsupported snapshot version: 2.0.0/, error.message)
+      assert_match(/Unsupported snapshot version: 1.0.0/, error.message)
     end
 
     def test_version_validation_with_string_keys
@@ -98,28 +98,28 @@ module SwarmSDK
 
     # ========== Type Mismatch Tests ==========
 
-    def test_type_mismatch_snapshot_swarm_vs_node_orchestrator
+    def test_type_mismatch_snapshot_swarm_vs_workflow
       snapshot_data = create_valid_snapshot_hash
       snapshot_data[:type] = :swarm
-      mock_node_orchestrator = create_mock_node_orchestrator(agents: [:alice])
+      mock_workflow = create_mock_workflow(agents: [:alice])
 
       error = assert_raises(StateError) do
-        StateRestorer.new(mock_node_orchestrator, snapshot_data)
+        StateRestorer.new(mock_workflow, snapshot_data)
       end
 
-      assert_match(/Snapshot type 'swarm' doesn't match orchestration type 'node_orchestrator'/, error.message)
+      assert_match(/Snapshot type 'swarm' doesn't match orchestration type 'workflow'/, error.message)
     end
 
-    def test_type_mismatch_snapshot_node_orchestrator_vs_swarm
+    def test_type_mismatch_snapshot_workflow_vs_swarm
       snapshot_data = create_valid_snapshot_hash
-      snapshot_data[:type] = :node_orchestrator
+      snapshot_data[:type] = :workflow
       mock_swarm = create_mock_swarm(agents: [:alice])
 
       error = assert_raises(StateError) do
         StateRestorer.new(mock_swarm, snapshot_data)
       end
 
-      assert_match(/Snapshot type 'node_orchestrator' doesn't match orchestration type 'swarm'/, error.message)
+      assert_match(/Snapshot type 'workflow' doesn't match orchestration type 'swarm'/, error.message)
     end
 
     def test_type_matching_swarm_with_swarm
@@ -132,10 +132,10 @@ module SwarmSDK
       assert_kind_of(StateRestorer, restorer)
     end
 
-    def test_type_matching_node_orchestrator_with_node_orchestrator
+    def test_type_matching_workflow_with_workflow
       snapshot_data = create_valid_snapshot_hash
-      snapshot_data[:type] = :node_orchestrator
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice])
+      snapshot_data[:type] = :workflow
+      mock_node_orch = create_mock_workflow(agents: [:alice])
 
       restorer = StateRestorer.new(mock_node_orch, snapshot_data)
 
@@ -575,7 +575,7 @@ module SwarmSDK
       assert_equal(scratchpad_data, mock_scratchpad.restored_entries)
     end
 
-    def test_restore_scratchpad_node_orchestrator_enabled_mode
+    def test_restore_scratchpad_workflow_enabled_mode
       scratchpad_data = {
         shared: true,
         data: { "path1" => { "content" => "data", "title" => "Item" } },
@@ -584,8 +584,8 @@ module SwarmSDK
         agents: [:alice],
         scratchpad: scratchpad_data,
       )
-      snapshot_data[:type] = "node_orchestrator"
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice], scratchpad: :enabled)
+      snapshot_data[:type] = "workflow"
+      mock_node_orch = create_mock_workflow(agents: [:alice], scratchpad: :enabled)
       mock_scratchpad = MockScratchpadStorage.new
       mock_node_orch.setup_scratchpad_for(:planning, mock_scratchpad)
 
@@ -593,11 +593,11 @@ module SwarmSDK
       result = restorer.restore
 
       assert_kind_of(RestoreResult, result)
-      # Should restore scratchpad for NodeOrchestrator (enabled/shared across nodes)
+      # Should restore scratchpad for Workflow (enabled/shared across nodes)
       assert_equal(scratchpad_data[:data], mock_scratchpad.restored_entries)
     end
 
-    def test_restore_scratchpad_node_orchestrator_per_node_mode
+    def test_restore_scratchpad_workflow_per_node_mode
       scratchpad_data = {
         shared: false,
         data: {
@@ -609,8 +609,8 @@ module SwarmSDK
         agents: [:alice],
         scratchpad: scratchpad_data,
       )
-      snapshot_data[:type] = "node_orchestrator"
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice], scratchpad: :per_node)
+      snapshot_data[:type] = "workflow"
+      mock_node_orch = create_mock_workflow(agents: [:alice], scratchpad: :per_node)
 
       planning_scratchpad = MockScratchpadStorage.new
       impl_scratchpad = MockScratchpadStorage.new
@@ -800,7 +800,7 @@ module SwarmSDK
       assert_equal(2, mock_delegation.messages.size) # system + 1 user
     end
 
-    def test_restore_delegation_conversation_node_orchestrator_not_cached
+    def test_restore_delegation_conversation_workflow_not_cached
       delegation_data = {
         "alice@bob" => {
           conversation: [
@@ -819,10 +819,10 @@ module SwarmSDK
         agents: [:alice, :bob],
         delegations: delegation_data,
       )
-      snapshot_data[:type] = :node_orchestrator
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice, :bob])
+      snapshot_data[:type] = :workflow
+      mock_node_orch = create_mock_workflow(agents: [:alice, :bob])
       # Empty cache (not yet initialized)
-      mock_node_orch.agent_instance_cache[:delegations] = {}
+      mock_node_orch.delegation_instances.clear
 
       restorer = StateRestorer.new(mock_node_orch, snapshot_data)
       result = restorer.restore
@@ -938,12 +938,12 @@ module SwarmSDK
       assert_predicate(result, :success?)
     end
 
-    def test_restore_agent_not_in_cache_for_node_orchestrator
+    def test_restore_agent_not_in_cache_for_workflow
       snapshot_data = create_valid_snapshot_hash(agents: [:alice])
-      snapshot_data[:type] = :node_orchestrator
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice])
+      snapshot_data[:type] = :workflow
+      mock_node_orch = create_mock_workflow(agents: [:alice])
       # Agent not yet in cache
-      mock_node_orch.agent_instance_cache[:primary] = {}
+      mock_node_orch.agents.clear
 
       restorer = StateRestorer.new(mock_node_orch, snapshot_data)
       result = restorer.restore
@@ -1008,13 +1008,13 @@ module SwarmSDK
       end
 
       snapshot = {
-        version: "1.0.0",
+        version: "2.0.0",
         type: :swarm,
         snapshot_at: Time.now.iso8601,
         swarm_sdk_version: SwarmSDK::VERSION,
+        metadata: swarm_metadata.merge(first_message_sent: false),
         agents: agents_data,
         delegation_instances: delegations_data,
-        swarm: swarm_metadata.merge(first_message_sent: false),
       }
 
       snapshot[:scratchpad] = scratchpad if scratchpad
@@ -1041,8 +1041,8 @@ module SwarmSDK
       MockSwarm.new(agents: agents, system_prompt: system_prompt)
     end
 
-    def create_mock_node_orchestrator(agents: [], scratchpad: :enabled)
-      MockNodeOrchestrator.new(agents: agents, scratchpad: scratchpad)
+    def create_mock_workflow(agents: [], scratchpad: :enabled)
+      MockWorkflow.new(agents: agents, scratchpad: scratchpad)
     end
 
     # Mock Classes for testing
@@ -1055,31 +1055,38 @@ module SwarmSDK
       end
     end
 
-    class MockNodeOrchestrator
-      attr_reader :agent_instance_cache, :scratchpad, :start_node
+    class MockWorkflow
+      attr_reader :agents, :delegation_instances, :scratchpad, :start_node, :swarm_id, :parent_swarm_id
 
-      # Identify as NodeOrchestrator for type detection
+      # Identify as Workflow for type detection
       def is_a?(klass)
-        return true if klass == SwarmSDK::NodeOrchestrator
+        return true if klass == SwarmSDK::Workflow
 
         super
       end
 
       def kind_of?(klass)
-        return true if klass == SwarmSDK::NodeOrchestrator
+        return true if klass == SwarmSDK::Workflow
 
         super
       end
 
+      # Override class name for type detection
+      class << self
+        def name
+          "SwarmSDK::Workflow"
+        end
+      end
+
       def initialize(agents: [], scratchpad: :enabled)
         @agent_defs = {}
-        @agent_instance_cache = {
-          primary: {},
-          delegations: {},
-        }
+        @agents = {}                    # Updated to match Workflow
+        @delegation_instances = {}      # Updated to match Workflow
         @scratchpad = scratchpad
         @start_node = :planning # Default for tests
         @scratchpads = {} # { node_name => scratchpad }
+        @swarm_id = nil
+        @parent_swarm_id = nil
 
         agents.each do |agent_name|
           @agent_defs[agent_name] = MockAgentDef.new("Test prompt")
@@ -1088,6 +1095,23 @@ module SwarmSDK
 
       def agent_definitions
         @agent_defs
+      end
+
+      # Implement Snapshotable interface
+      def primary_agents
+        @agents
+      end
+
+      def delegation_instances_hash
+        @delegation_instances
+      end
+
+      def first_message_sent?
+        false
+      end
+
+      def name
+        "MockWorkflow"
       end
 
       def shared_scratchpad?
@@ -1127,12 +1151,21 @@ module SwarmSDK
     end
 
     class MockSwarm
-      attr_reader :agents
+      attr_reader :agents, :swarm_id, :parent_swarm_id
       attr_accessor :first_message_sent, :delegation_instances, :scratchpad_storage
+
+      # Override class name for type detection
+      class << self
+        def name
+          "SwarmSDK::Swarm"
+        end
+      end
 
       def initialize(agents: [], system_prompt: nil)
         @agent_defs = {}
         @agents = {}
+        @swarm_id = nil
+        @parent_swarm_id = nil
 
         agents.each do |agent_name|
           chat = MockAgentChat.new
@@ -1143,6 +1176,19 @@ module SwarmSDK
         @first_message_sent = nil
         @delegation_instances = {}
         @scratchpad_storage = nil
+      end
+
+      # Implement Snapshotable interface
+      def primary_agents
+        @agents
+      end
+
+      def delegation_instances_hash
+        @delegation_instances
+      end
+
+      def name
+        "MockSwarm"
       end
 
       def agent(name)

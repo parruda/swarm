@@ -1,40 +1,45 @@
 # frozen_string_literal: true
 
 module SwarmSDK
-  # NodeOrchestrator executes a multi-node workflow
+  # Workflow executes a multi-node workflow
   #
-  # Each node represents a mini-swarm execution stage. The orchestrator:
+  # Each node represents a mini-swarm execution stage. The workflow:
   # - Builds execution order from node dependencies (topological sort)
   # - Creates a separate swarm instance for each node
   # - Passes output from one node as input to dependent nodes
   # - Supports input/output transformers for data flow customization
   #
   # @example
-  #   orchestrator = NodeOrchestrator.new(
+  #   workflow = Workflow.new(
   #     swarm_name: "Dev Team",
   #     agent_definitions: { backend: def1, tester: def2 },
   #     nodes: { planning: node1, implementation: node2 },
   #     start_node: :planning
   #   )
-  #   result = orchestrator.execute("Build auth system")
-  class NodeOrchestrator
-    attr_reader :swarm_name, :nodes, :start_node, :agent_definitions, :agent_instance_cache, :scratchpad
+  #   result = workflow.execute("Build auth system")
+  class Workflow
+    attr_reader :swarm_name, :nodes, :start_node, :agent_definitions, :scratchpad
+    attr_reader :agents, :delegation_instances, :swarm_id, :parent_swarm_id, :mcp_clients
     attr_writer :swarm_id, :config_for_hooks
     attr_accessor :swarm_registry_config
 
     def initialize(swarm_name:, agent_definitions:, nodes:, start_node:, swarm_id: nil, scratchpad: :enabled, allow_filesystem_tools: nil)
       @swarm_name = swarm_name
       @swarm_id = swarm_id
+      @parent_swarm_id = nil # Workflows don't have parent swarms
       @agent_definitions = agent_definitions
       @nodes = nodes
       @start_node = start_node
       @scratchpad = normalize_scratchpad_mode(scratchpad)
       @allow_filesystem_tools = allow_filesystem_tools
       @swarm_registry_config = [] # External swarms config (if using composable swarms)
-      @agent_instance_cache = {
-        primary: {}, # { agent_name => Agent::Chat }
-        delegations: {}, # { "delegate@delegator" => Agent::Chat }
-      }
+
+      # Simplified structure (matches Swarm)
+      @agents = {}                    # Cached primary agents from nodes
+      @delegation_instances = {}      # Cached delegation instances from nodes
+
+      # MCP clients per agent (for cleanup compatibility)
+      @mcp_clients = Hash.new { |h, k| h[k] = [] }
 
       # Initialize scratchpad storage based on mode
       case @scratchpad
@@ -56,8 +61,24 @@ module SwarmSDK
       @execution_order = build_execution_order
     end
 
-    # Alias for compatibility with Swarm interface
-    alias_method :name, :swarm_name
+    # Provide name method for interface compatibility
+    def name
+      @swarm_name
+    end
+
+    # Implement Snapshotable interface
+    def primary_agents
+      @agents
+    end
+
+    def delegation_instances_hash
+      @delegation_instances
+    end
+
+    # No-op for Swarm compatibility (Workflow doesn't track first message)
+    def first_message_sent?
+      false
+    end
 
     # Get scratchpad storage for a specific node
     #
@@ -120,7 +141,7 @@ module SwarmSDK
     # @return [Tools::Stores::ScratchpadStorage, nil]
     def shared_scratchpad_storage
       if @scratchpad == :per_node
-        RubyLLM.logger.warn("NodeOrchestrator: Accessing shared_scratchpad_storage in per-node mode. Use scratchpad_for(node_name) instead.")
+        RubyLLM.logger.warn("Workflow: Accessing shared_scratchpad_storage in per-node mode. Use scratchpad_for(node_name) instead.")
       end
       @shared_scratchpad_storage
     end
@@ -264,7 +285,7 @@ module SwarmSDK
 
           # If result has error, log it with backtrace
           if result.error
-            RubyLLM.logger.error("NodeOrchestrator: Node '#{node_name}' failed: #{result.error.message}")
+            RubyLLM.logger.error("Workflow: Node '#{node_name}' failed: #{result.error.message}")
             RubyLLM.logger.error("  Backtrace: #{result.error.backtrace&.first(5)&.join("\n  ")}")
           end
         end
@@ -325,7 +346,7 @@ module SwarmSDK
 
       last_result
     ensure
-      # NodeOrchestrator always clears (always sets up logging)
+      # Workflow always clears (always sets up logging)
       Fiber[:execution_id] = nil
       Fiber[:swarm_id] = nil
       Fiber[:parent_swarm_id] = nil
@@ -353,9 +374,9 @@ module SwarmSDK
     # @return [Snapshot] Snapshot object with convenient serialization methods
     #
     # @example Save snapshot to JSON file
-    #   orchestrator = NodeOrchestrator.new(...)
-    #   orchestrator.execute("Build feature")
-    #   snapshot = orchestrator.snapshot
+    #   workflow = Workflow.new(...)
+    #   workflow.execute("Build feature")
+    #   snapshot = workflow.snapshot
     #   snapshot.write_to_file("workflow_session.json")
     def snapshot
       StateSnapshot.new(self).snapshot
@@ -364,10 +385,10 @@ module SwarmSDK
     # Restore workflow state from snapshot
     #
     # Accepts a Snapshot object, hash, or JSON string. Validates compatibility
-    # between snapshot and current orchestrator configuration. Restores agent
-    # conversations that exist in the agent_instance_cache.
+    # between snapshot and current workflow configuration. Restores agent
+    # conversations that exist in the cached agents.
     #
-    # The orchestrator must be created with the SAME configuration (agent definitions,
+    # The workflow must be created with the SAME configuration (agent definitions,
     # nodes) as when the snapshot was created. Only conversation state is restored.
     #
     # For agents with reset_context: false, restored conversations will be injected
@@ -378,16 +399,16 @@ module SwarmSDK
     # @return [RestoreResult] Result with warnings about skipped agents
     #
     # @example Restore from Snapshot object
-    #   orchestrator = NodeOrchestrator.new(...)  # Same config as snapshot
+    #   workflow = Workflow.new(...)  # Same config as snapshot
     #   snapshot = Snapshot.from_file("workflow_session.json")
-    #   result = orchestrator.restore(snapshot)
+    #   result = workflow.restore(snapshot)
     #   if result.success?
     #     puts "All agents restored"
     #   else
     #     puts result.summary
     #   end
     #
-    # Restore orchestrator state from snapshot
+    # Restore workflow state from snapshot
     #
     # By default, uses current system prompts from agent definitions (YAML + SDK defaults + plugin injections).
     # Set preserve_system_prompts: true to use historical prompts from snapshot.
@@ -403,7 +424,7 @@ module SwarmSDK
 
     # Generate a unique execution ID for workflow
     #
-    # Creates an execution ID that uniquely identifies a single orchestrator.execute() call.
+    # Creates an execution ID that uniquely identifies a single workflow.execute() call.
     # Format: "exec_workflow_{random_hex}"
     #
     # @return [String] Generated execution ID (e.g., "exec_workflow_a3f2b1c8")
@@ -414,7 +435,7 @@ module SwarmSDK
     # Emit node_start event
     #
     # @param node_name [Symbol] Name of the node
-    # @param node [Node::Builder] Node configuration
+    # @param node [Workflow::NodeBuilder] Node configuration
     # @return [void]
     def emit_node_start(node_name, node)
       return unless LogStream.emitter
@@ -432,7 +453,7 @@ module SwarmSDK
     # Emit node_stop event
     #
     # @param node_name [Symbol] Name of the node
-    # @param node [Node::Builder] Node configuration
+    # @param node [Workflow::NodeBuilder] Node configuration
     # @param result [Result] Node execution result
     # @param duration [Float] Node execution duration in seconds
     # @param skipped [Boolean] Whether execution was skipped
@@ -456,7 +477,7 @@ module SwarmSDK
     # Agent-less nodes run pure Ruby code without LLM execution.
     # Creates a minimal Result object with the transformed content.
     #
-    # @param node [Node::Builder] Agent-less node configuration
+    # @param node [Workflow::NodeBuilder] Agent-less node configuration
     # @param input [String] Input content
     # @return [Result] Result with transformed content
     def execute_agent_less_node(node, input)
@@ -470,7 +491,7 @@ module SwarmSDK
       )
     end
 
-    # Validate orchestrator configuration
+    # Validate workflow configuration
     #
     # @return [void]
     # @raise [ConfigurationError] If configuration is invalid
@@ -529,7 +550,7 @@ module SwarmSDK
     # - :per_node - each node gets its own scratchpad instance
     # - :disabled - no scratchpad
     #
-    # @param node [Node::Builder] Node configuration
+    # @param node [Workflow::NodeBuilder] Node configuration
     # @return [Swarm] Configured swarm instance
     def build_swarm_for_node(node)
       # Build hierarchical swarm_id if parent has one (nil auto-generates)
@@ -660,7 +681,7 @@ module SwarmSDK
     #
     # @param transformed [String, Hash] Result from transformer
     # @param node_name [Symbol] Current node name
-    # @param node [Node::Builder] Node configuration
+    # @param node [Workflow::NodeBuilder] Node configuration
     # @param node_start_time [Time] Node execution start time
     # @return [Hash] Control result with :action and relevant data
     def handle_transformer_control_flow(transformed:, node_name:, node:, node_start_time:)
@@ -692,7 +713,7 @@ module SwarmSDK
     #
     # @param transformed [String, Hash] Result from transformer
     # @param node_name [Symbol] Current node name
-    # @param node [Node::Builder] Node configuration
+    # @param node [Workflow::NodeBuilder] Node configuration
     # @param node_start_time [Time] Node execution start time
     # @param skip_execution [Boolean] Whether node execution was skipped
     # @param result [Result] Node execution result
@@ -741,7 +762,7 @@ module SwarmSDK
     # This allows preserving conversation history across nodes.
     #
     # @param swarm [Swarm] Swarm instance that just executed
-    # @param node [Node::Builder] Node configuration
+    # @param node [Workflow::Builder] Node configuration
     # @return [void]
     def cache_agent_instances(swarm, node)
       return unless swarm.agents
@@ -755,16 +776,16 @@ module SwarmSDK
 
         # Cache primary agent
         agent_instance = swarm.agents[agent_name]
-        @agent_instance_cache[:primary][agent_name] = agent_instance if agent_instance
+        @agents[agent_name] = agent_instance if agent_instance
 
-        # V7.0: Cache delegation instances atomically (together with primary)
+        # Cache delegation instances atomically (together with primary)
         agent_def = @agent_definitions[agent_name]
         agent_def.delegates_to.each do |delegate_name|
           delegation_key = "#{delegate_name}@#{agent_name}"
           delegation_instance = swarm.delegation_instances[delegation_key]
 
           if delegation_instance
-            @agent_instance_cache[:delegations][delegation_key] = delegation_instance
+            @delegation_instances[delegation_key] = delegation_instance
           end
         end
       end
@@ -776,19 +797,19 @@ module SwarmSDK
     # Forces agent initialization first (by accessing .agents), then swaps in cached instances.
     #
     # @param swarm [Swarm] Swarm instance to inject into
-    # @param node [Node::Builder] Node configuration
+    # @param node [Workflow::Builder] Node configuration
     # @return [void]
     def inject_cached_agents(swarm, node)
       # Check if any agents need context preservation
       has_preserved = node.agent_configs.any? do |c|
         !c[:reset_context] && (
-          @agent_instance_cache[:primary][c[:agent]] ||
+          @agents[c[:agent]] ||
           has_cached_delegations_for?(c[:agent])
         )
       end
       return unless has_preserved
 
-      # V7.0 CRITICAL FIX: Force initialization FIRST
+      # Force initialization FIRST
       # Without this, @agents will be replaced by initialize_all, losing our injected instances
       swarm.agent(node.agent_configs.first[:agent]) # Triggers lazy init
 
@@ -801,7 +822,7 @@ module SwarmSDK
         agent_name = config[:agent]
         next if config[:reset_context]
 
-        cached_agent = @agent_instance_cache[:primary][agent_name]
+        cached_agent = @agents[agent_name]
         next unless cached_agent
 
         # Replace freshly initialized agent with cached instance
@@ -817,11 +838,11 @@ module SwarmSDK
 
         agent_def.delegates_to.each do |delegate_name|
           delegation_key = "#{delegate_name}@#{agent_name}"
-          cached_delegation = @agent_instance_cache[:delegations][delegation_key]
+          cached_delegation = @delegation_instances[delegation_key]
           next unless cached_delegation
 
           # Replace freshly initialized delegation instance
-          # V7.0: Tool references intact - atomic caching preserves object graph
+          # Tool references intact - atomic caching preserves object graph
           delegation_hash[delegation_key] = cached_delegation
         end
       end
@@ -831,7 +852,7 @@ module SwarmSDK
       agent_def = @agent_definitions[agent_name]
       agent_def.delegates_to.any? do |delegate_name|
         delegation_key = "#{delegate_name}@#{agent_name}"
-        @agent_instance_cache[:delegations][delegation_key]
+        @delegation_instances[delegation_key]
       end
     end
 

@@ -5,7 +5,7 @@ require "json"
 require "timeout"
 
 module SwarmSDK
-  module Node
+  class Workflow
     # Executes bash command transformers for node input/output transformation
     #
     # Transformers are shell commands that receive NodeContext data on STDIN as JSON

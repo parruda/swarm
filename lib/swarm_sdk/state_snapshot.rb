@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 module SwarmSDK
-  # Creates snapshots of swarm conversation state
+  # Creates snapshots of swarm/workflow conversation state
   #
-  # Unified implementation that works for both Swarm and NodeOrchestrator.
+  # Unified implementation that works for both Swarm and Workflow.
   # Captures conversation history, context state, scratchpad contents, and
   # read tracking information.
   #
@@ -15,20 +15,19 @@ module SwarmSDK
   #   swarm = SwarmSDK.build { ... }
   #   swarm.execute("Build authentication")
   #   snapshot = swarm.snapshot
-  #   File.write("session.json", JSON.pretty_generate(snapshot))
+  #   snapshot.write_to_file("session.json")
   #
-  # @example Snapshot a node orchestrator
-  #   orchestrator = NodeOrchestrator.new(...)
-  #   orchestrator.execute("Build feature")
-  #   snapshot = orchestrator.snapshot
-  #   redis.set("session:#{user_id}", JSON.generate(snapshot))
+  # @example Snapshot a workflow
+  #   workflow = SwarmSDK.workflow { ... }
+  #   workflow.execute("Build feature")
+  #   snapshot = workflow.snapshot
+  #   snapshot.write_to_file("workflow_session.json")
   class StateSnapshot
     # Initialize snapshot creator
     #
-    # @param orchestration [Swarm, NodeOrchestrator] Swarm or orchestrator to snapshot
+    # @param orchestration [Swarm, Workflow] Swarm or workflow to snapshot
     def initialize(orchestration)
       @orchestration = orchestration
-      @type = orchestration.is_a?(SwarmSDK::NodeOrchestrator) ? :node_orchestrator : :swarm
     end
 
     # Create snapshot of current state
@@ -39,25 +38,17 @@ module SwarmSDK
     # @return [Snapshot] Snapshot object
     def snapshot
       data = {
-        version: "1.0.0",
-        type: @type.to_s,
+        version: "2.0.0", # Bumped for breaking changes
+        type: type_name,
         snapshot_at: Time.now.utc.iso8601,
         swarm_sdk_version: SwarmSDK::VERSION,
+        metadata: snapshot_metadata,
         agents: snapshot_agents,
         delegation_instances: snapshot_delegation_instances,
+        scratchpad: snapshot_scratchpad,
         read_tracking: snapshot_read_tracking,
         memory_read_tracking: snapshot_memory_read_tracking,
       }
-
-      # Add scratchpad for both Swarm and NodeOrchestrator (shared across nodes)
-      data[:scratchpad] = snapshot_scratchpad
-
-      # Add type-specific metadata
-      if @type == :swarm
-        data[:swarm] = snapshot_swarm_metadata
-      else
-        data[:orchestrator] = snapshot_orchestrator_metadata
-      end
 
       # Wrap in Snapshot object
       SwarmSDK::Snapshot.new(data)
@@ -65,50 +56,36 @@ module SwarmSDK
 
     private
 
-    # Snapshot swarm-specific metadata
+    # Get type name for snapshot
     #
-    # @return [Hash] Swarm metadata
-    def snapshot_swarm_metadata
+    # @return [String] "swarm" or "workflow"
+    def type_name
+      @orchestration.class.name.split("::").last.downcase
+    end
+
+    # Snapshot common metadata
+    #
+    # @return [Hash] Metadata
+    def snapshot_metadata
       {
         id: @orchestration.swarm_id,
         parent_id: @orchestration.parent_swarm_id,
+        name: @orchestration.name,
+        # Swarm-specific: first_message_sent (Workflow returns false)
         first_message_sent: @orchestration.first_message_sent?,
       }
     end
 
-    # Snapshot orchestrator-specific metadata
-    #
-    # @return [Hash] Orchestrator metadata
-    def snapshot_orchestrator_metadata
-      {
-        id: @orchestration.swarm_id || generate_orchestrator_id,
-        parent_id: nil, # NodeOrchestrator doesn't support parent_id
-      }
-    end
-
-    # Generate orchestrator ID if not set
-    #
-    # @return [String] Generated ID
-    def generate_orchestrator_id
-      name = @orchestration.swarm_name.to_s.gsub(/[^a-z0-9_-]/i, "_").downcase
-      "#{name}_#{SecureRandom.hex(4)}"
-    end
-
     # Snapshot all agent conversations and context state
+    #
+    # Uses interface method: primary_agents (no type checking!)
     #
     # @return [Hash] { agent_name => { conversation:, context_state:, system_prompt: } }
     def snapshot_agents
       result = {}
 
-      # Get agents from appropriate source
-      agents_hash = if @type == :swarm
-        @orchestration.agents
-      else
-        @orchestration.agent_instance_cache[:primary]
-      end
-
-      agents_hash.each do |agent_name, agent_chat|
-        # Get system prompt from agent definition
+      # Use interface method - works for both Swarm and Workflow!
+      @orchestration.primary_agents.each do |agent_name, agent_chat|
         agent_definition = @orchestration.agent_definitions[agent_name]
         system_prompt = agent_definition&.system_prompt
 
@@ -133,29 +110,19 @@ module SwarmSDK
 
     # Serialize a single message
     #
-    # Handles RubyLLM::Message serialization with proper handling of:
-    # - Content objects (text + attachments)
-    # - Tool calls (must manually call .to_h on each)
-    # - Tool call IDs, tokens, model IDs
-    #
     # @param msg [RubyLLM::Message] Message to serialize
     # @return [Hash] Serialized message
     def serialize_message(msg)
       hash = { role: msg.role }
 
-      # Handle content - check msg.content directly, not from msg.to_h
-      # msg.to_h converts Content to String when no attachments present
+      # Handle content - check msg.content directly
       hash[:content] = if msg.content.is_a?(RubyLLM::Content)
-        # Content object: serialize with text + attachments
         msg.content.to_h
       else
-        # Plain string content
         msg.content
       end
 
-      # Handle tool calls - must manually extract fields
-      # RubyLLM::ToolCall#to_h doesn't reliably serialize id/name fields
-      # msg.tool_calls is a Hash<String, ToolCall>, so we need .values
+      # Handle tool calls
       if msg.tool_calls && !msg.tool_calls.empty?
         hash[:tool_calls] = msg.tool_calls.values.map do |tc|
           {
@@ -185,7 +152,6 @@ module SwarmSDK
 
       {
         warning_thresholds_hit: agent_context.warning_thresholds_hit.to_a,
-        # NOTE: @compression_applied initializes to nil, not false
         compression_applied: context_manager.compression_applied,
         last_todowrite_message_index: agent_chat.last_todowrite_message_index,
         active_skill_path: agent_chat.active_skill_path,
@@ -194,19 +160,15 @@ module SwarmSDK
 
     # Snapshot delegation instance conversations
     #
+    # Uses interface method: delegation_instances_hash (no type checking!)
+    #
     # @return [Hash] { "delegate@delegator" => { conversation:, context_state:, system_prompt: } }
     def snapshot_delegation_instances
       result = {}
 
-      # Get delegation instances from appropriate source
-      delegations_hash = if @type == :swarm
-        @orchestration.delegation_instances
-      else
-        @orchestration.agent_instance_cache[:delegations]
-      end
-
-      delegations_hash.each do |instance_name, delegation_chat|
-        # Extract base agent name from instance name (e.g., "backend@lead" -> "backend")
+      # Use interface method - works for both Swarm and Workflow!
+      @orchestration.delegation_instances_hash.each do |instance_name, delegation_chat|
+        # Extract base agent name from instance name
         base_name = instance_name.to_s.split("@").first.to_sym
 
         # Get system prompt from base agent definition
@@ -225,24 +187,21 @@ module SwarmSDK
 
     # Snapshot scratchpad contents
     #
-    # For Swarm: uses scratchpad_storage (returns flat hash)
-    # For NodeOrchestrator: returns structured hash with metadata
-    #   - Enabled mode: { shared: true, data: { path => entry } }
-    #   - Per-node mode: { shared: false, data: { node_name => { path => entry } } }
+    # Detects type and calls appropriate method.
     #
     # @return [Hash] Scratchpad snapshot data
     def snapshot_scratchpad
-      if @type == :node_orchestrator
-        snapshot_node_orchestrator_scratchpad
+      if @orchestration.is_a?(Workflow)
+        snapshot_workflow_scratchpad
       else
         snapshot_swarm_scratchpad
       end
     end
 
-    # Snapshot scratchpad for NodeOrchestrator
+    # Snapshot scratchpad for Workflow
     #
     # @return [Hash] Structured scratchpad data with mode metadata
-    def snapshot_node_orchestrator_scratchpad
+    def snapshot_workflow_scratchpad
       all_scratchpads = @orchestration.all_scratchpads
       return {} unless all_scratchpads&.any?
 
@@ -351,17 +310,15 @@ module SwarmSDK
 
     # All agent names (primary + delegations)
     #
+    # Uses interface methods - no type checking!
+    #
     # @return [Array<Symbol>] All agent names
     def all_agent_names
-      # Get primary agent names - both types use agent_definitions
+      # Get primary agent names
       agents_hash = @orchestration.agent_definitions.keys
 
       # Add delegation instance names
-      delegations_hash = if @type == :swarm
-        @orchestration.delegation_instances.keys
-      else
-        @orchestration.agent_instance_cache[:delegations].keys
-      end
+      delegations_hash = @orchestration.delegation_instances_hash.keys
 
       agents_hash + delegations_hash.map(&:to_sym)
     end

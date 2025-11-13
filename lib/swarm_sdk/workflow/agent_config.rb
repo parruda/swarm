@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module SwarmSDK
-  module Node
+  class Workflow
     # AgentConfig provides fluent API for configuring agents within a node
     #
     # This class enables the chainable syntax:

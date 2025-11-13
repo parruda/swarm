@@ -85,21 +85,33 @@ module SwarmSDK
       Array(delegates).map(&:to_sym)
     end
 
-    # Convert configuration to Swarm or NodeOrchestrator using DSL
+    # Convert configuration to Swarm or Workflow using DSL
     #
     # This method translates YAML configuration to Ruby DSL calls.
-    # The DSL (Swarm::Builder) handles all validation, merging, and construction.
+    # The appropriate builder (Swarm::Builder or Workflow::Builder) handles
+    # all validation, merging, and construction.
     #
     # @param allow_filesystem_tools [Boolean, nil] Whether to allow filesystem tools (nil uses global setting)
-    # @return [Swarm, NodeOrchestrator] Configured swarm or orchestrator
+    # @return [Swarm, Workflow] Configured swarm or workflow
     def to_swarm(allow_filesystem_tools: nil)
-      builder = Swarm::Builder.new(allow_filesystem_tools: allow_filesystem_tools)
+      # Choose builder based on whether nodes are defined
+      builder = if @nodes.any?
+        Workflow::Builder.new(allow_filesystem_tools: allow_filesystem_tools)
+      else
+        Swarm::Builder.new(allow_filesystem_tools: allow_filesystem_tools)
+      end
 
-      # Translate basic swarm config to DSL
+      # Translate basic config to DSL
       builder.id(@swarm_id) if @swarm_id
       builder.name(@swarm_name)
-      builder.lead(@lead_agent)
       builder.scratchpad(@scratchpad_mode)
+
+      # Set lead or start_node based on builder type
+      if builder.is_a?(Swarm::Builder)
+        builder.lead(@lead_agent)
+      else
+        builder.start_node(@start_node)
+      end
 
       # Translate external swarms
       if @external_swarms&.any?
@@ -127,13 +139,12 @@ module SwarmSDK
       # Translate swarm-level hooks to DSL (if present)
       translate_swarm_hooks(builder) if @swarm_hooks.any?
 
-      # Translate nodes to DSL (if present)
-      if @nodes.any?
+      # Translate nodes to DSL (if using Workflow::Builder)
+      if builder.is_a?(Workflow::Builder)
         translate_nodes(builder)
-        builder.start_node(@start_node)
       end
 
-      # Build the swarm or orchestrator (DSL decides based on presence of nodes)
+      # Build the swarm or workflow
       builder.build_swarm
     end
 

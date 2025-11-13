@@ -88,7 +88,7 @@ module SwarmSDK
       )
     end
 
-    # Test Case 2: Nested Swarm Inheritance (NodeOrchestrator)
+    # Test Case 2: Nested Swarm Inheritance (Workflow)
     def test_node_workflow_execution_id_inheritance
       yaml = <<~YAML
         version: 2

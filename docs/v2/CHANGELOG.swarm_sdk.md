@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **MAJOR REFACTORING**: Separated Swarm and Workflow into distinct, clear APIs
+  - `SwarmSDK.build` now ONLY returns `Swarm` (simple multi-agent collaboration)
+  - New `SwarmSDK.workflow` API for multi-stage workflows (returns `Workflow`)
+  - `NodeOrchestrator` class renamed to `Workflow` (clearer naming)
+  - Attempting to use nodes in `SwarmSDK.build` now raises `ConfigurationError`
+  - Snapshot version bumped to 2.0.0 (old snapshots incompatible)
+  - Snapshot structure changed: `swarm:` key renamed to `metadata:`
+
+### Added
+
+- New `SwarmSDK.workflow` DSL for building multi-stage workflows
+- Three new concern modules for shared functionality:
+  - `Concerns::Snapshotable` - Common snapshot/restore interface
+  - `Concerns::Validatable` - Common validation interface
+  - `Concerns::Cleanupable` - Common cleanup interface
+- `Builders::BaseBuilder` - Shared DSL logic for both Swarm and Workflow builders
+- Both `Swarm` and `Workflow` now implement common interface methods:
+  - `primary_agents` - Access to primary agent instances
+  - `delegation_instances_hash` - Access to delegation instances
+
+### Changed
+
+- `Workflow` (formerly `NodeOrchestrator`) internal structure simplified to match `Swarm`:
+  - Replaced `@agent_instance_cache = { primary: {}, delegations: {} }`
+  - With `@agents = {}` and `@delegation_instances = {}`
+- `Swarm::Builder` dramatically simplified: 784 lines → 208 lines (73% reduction)
+- `StateSnapshot` and `StateRestorer` no longer use type checking - rely on interface methods
+- `SnapshotFromEvents` updated to generate v2.0.0 snapshots with new structure
+- Module namespace: `Node::` renamed to `Workflow::`
+  - `Node::Builder` → `Workflow::NodeBuilder`
+  - `Node::AgentConfig` → `Workflow::AgentConfig`
+  - `Node::TransformerExecutor` → `Workflow::TransformerExecutor`
+
+### Removed
+
+- Dual-return-type pattern from `SwarmSDK.build` (no longer returns `NodeOrchestrator`)
+- ~600 lines of duplicated code across Swarm and NodeOrchestrator
+- Complex type-checking logic in StateSnapshot and StateRestorer
+
+### Migration Guide
+
+**For vanilla swarm users (no nodes):** No changes needed! Your code works as-is.
+
+**For workflow users (using nodes):** Change `SwarmSDK.build` to `SwarmSDK.workflow`:
+
+```ruby
+# Before
+SwarmSDK.build do
+  node :planning { ... }
+end
+
+# After
+SwarmSDK.workflow do
+  node :planning { ... }
+end
+```
+
+**For event-sourcing users:** No changes needed! `SnapshotFromEvents.reconstruct(events)` automatically generates v2.0.0 snapshots.
+
+**For snapshot storage users:** Old snapshots (v1.0.0) won't restore. Create new snapshots or convert:
+```ruby
+old[:version] = "2.0.0"
+old[:metadata] = old.delete(:swarm)
+```
+
 ### Added
 
 - **Non-Blocking Execution with Cancellation Support**: Optional `wait` parameter enables task cancellation

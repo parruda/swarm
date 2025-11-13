@@ -54,10 +54,10 @@ module SwarmSDK
       assert(config.nodes.key?(:implementation))
       assert_equal(:planning, config.start_node)
 
-      # Build swarm - should create NodeOrchestrator
+      # Build swarm - should create Workflow
       result = config.to_swarm
 
-      assert_instance_of(NodeOrchestrator, result)
+      assert_instance_of(Workflow, result)
     end
 
     # Test: Node dependencies
@@ -105,7 +105,7 @@ module SwarmSDK
       # Build should succeed
       orchestrator = config.to_swarm
 
-      assert_instance_of(NodeOrchestrator, orchestrator)
+      assert_instance_of(Workflow, orchestrator)
     end
 
     # Test: Node with delegation
@@ -144,7 +144,7 @@ module SwarmSDK
       # Build swarm
       orchestrator = config.to_swarm
 
-      assert_instance_of(NodeOrchestrator, orchestrator)
+      assert_instance_of(Workflow, orchestrator)
     end
 
     # Test: Node with lead override
@@ -181,7 +181,7 @@ module SwarmSDK
       # Build swarm
       orchestrator = config.to_swarm
 
-      assert_instance_of(NodeOrchestrator, orchestrator)
+      assert_instance_of(Workflow, orchestrator)
     end
 
     # Test: Node with transformers
@@ -219,7 +219,7 @@ module SwarmSDK
       # Build swarm
       orchestrator = config.to_swarm
 
-      assert_instance_of(NodeOrchestrator, orchestrator)
+      assert_instance_of(Workflow, orchestrator)
     end
 
     # Test: Missing start_node raises error
@@ -367,7 +367,7 @@ module SwarmSDK
       # Build swarm
       orchestrator = config.to_swarm
 
-      assert_instance_of(NodeOrchestrator, orchestrator)
+      assert_instance_of(Workflow, orchestrator)
     end
 
     # Test: Agent-less node (computation only)
@@ -405,7 +405,7 @@ module SwarmSDK
       # Build swarm - should succeed (agent-less nodes allowed with transformers)
       orchestrator = config.to_swarm
 
-      assert_instance_of(NodeOrchestrator, orchestrator)
+      assert_instance_of(Workflow, orchestrator)
     end
 
     # Test: Complex multi-node workflow
@@ -486,7 +486,7 @@ module SwarmSDK
       # Build swarm
       orchestrator = config.to_swarm
 
-      assert_instance_of(NodeOrchestrator, orchestrator)
+      assert_instance_of(Workflow, orchestrator)
     end
   end
 end

@@ -35,13 +35,13 @@ module SwarmSDK
       snapshot = SnapshotFromEvents.reconstruct(events)
 
       # Verify basic structure
-      assert_equal("1.0.0", snapshot[:version])
+      assert_equal("2.0.0", snapshot[:version])
       assert_equal("swarm", snapshot[:type])
       assert(snapshot[:snapshot_at])
       assert_equal(SwarmSDK::VERSION, snapshot[:swarm_sdk_version])
 
       # Verify main sections exist
-      assert(snapshot[:swarm])
+      assert(snapshot[:metadata])
       assert(snapshot[:agents])
       assert(snapshot[:delegation_instances])
       assert(snapshot[:scratchpad])
@@ -62,8 +62,8 @@ module SwarmSDK
       snapshot = SnapshotFromEvents.reconstruct(events)
 
       # Verify swarm metadata
-      assert(snapshot[:swarm][:id], "Missing swarm ID")
-      assert(snapshot[:swarm][:first_message_sent])
+      assert(snapshot[:metadata][:id], "Missing swarm ID")
+      assert(snapshot[:metadata][:first_message_sent])
     end
 
     def test_reconstruct_agent_conversations
@@ -434,7 +434,7 @@ module SwarmSDK
       snapshot = SnapshotFromEvents.reconstruct(events)
 
       # Should have structure but empty content
-      assert_equal("1.0.0", snapshot[:version])
+      assert_equal("2.0.0", snapshot[:version])
       assert_empty(snapshot[:agents])
       assert_empty(snapshot[:delegation_instances])
       assert_empty(snapshot[:scratchpad])
@@ -477,9 +477,9 @@ module SwarmSDK
       reconstructed_snapshot = SnapshotFromEvents.reconstruct(events)
 
       # Compare key components
-      assert_equal(direct_snapshot[:swarm][:id], reconstructed_snapshot[:swarm][:id])
-      assert_equal(direct_snapshot[:swarm][:parent_id], reconstructed_snapshot[:swarm][:parent_id])
-      assert_equal(direct_snapshot[:swarm][:first_message_sent], reconstructed_snapshot[:swarm][:first_message_sent])
+      assert_equal(direct_snapshot[:metadata][:id], reconstructed_snapshot[:metadata][:id])
+      assert_equal(direct_snapshot[:metadata][:parent_id], reconstructed_snapshot[:metadata][:parent_id])
+      assert_equal(direct_snapshot[:metadata][:first_message_sent], reconstructed_snapshot[:metadata][:first_message_sent])
 
       # Compare agents
       assert_equal(direct_snapshot[:agents].keys.sort, reconstructed_snapshot[:agents].keys.sort)
