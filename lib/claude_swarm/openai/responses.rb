@@ -5,7 +5,7 @@ module ClaudeSwarm
     class Responses
       MAX_TURNS_WITH_TOOLS = 100_000 # virtually infinite
 
-      def initialize(openai_client:, mcp_client:, available_tools:, executor:, instance_name:, model:, temperature: nil, reasoning_effort: nil)
+      def initialize(openai_client:, mcp_client:, available_tools:, executor:, instance_name:, model:, temperature: nil, reasoning_effort: nil, zdr: false)
         @openai_client = openai_client
         @mcp_client = mcp_client
         @available_tools = available_tools
@@ -14,6 +14,7 @@ module ClaudeSwarm
         @model = model
         @temperature = temperature
         @reasoning_effort = reasoning_effort
+        @zdr = zdr
         @system_prompt = nil
       end
 
@@ -58,6 +59,7 @@ module ClaudeSwarm
           else
             input
           end
+          conversation_array << { role: "user", content: parameters[:input] }
         else
           # Follow-up call with conversation array (function calls + outputs)
           parameters[:input] = conversation_array
@@ -70,8 +72,8 @@ module ClaudeSwarm
           @executor.logger.info { "Conversation item IDs: #{conversation_ids.inspect}" }
         end
 
-        # Add previous response ID for conversation continuity
-        parameters[:previous_response_id] = previous_response_id if previous_response_id
+        # Add previous response ID for conversation continuity (unless zdr is enabled)
+        parameters[:previous_response_id] = @zdr ? nil : previous_response_id
 
         # Add tools if available
         if @available_tools&.any?
@@ -106,7 +108,7 @@ module ClaudeSwarm
           @executor.logger.error { "Request parameters: #{JsonHandler.pretty_generate!(parameters)}" }
 
           # Try to extract and log the response body for better debugging
-          if e.respond_to?(:response)
+          if e.respond_to?(:response) && e.response
             begin
               error_body = e.response[:body]
               @executor.logger.error { "Error response body: #{error_body}" }
@@ -122,7 +124,7 @@ module ClaudeSwarm
             error: {
               class: e.class.to_s,
               message: e.message,
-              response_body: e.respond_to?(:response) ? e.response[:body] : nil,
+              response_body: e.respond_to?(:response) && e.response ? e.response[:body] : nil,
               backtrace: e.backtrace.first(5),
             },
           })
@@ -146,33 +148,21 @@ module ClaudeSwarm
 
         # Handle response based on output structure
         output = response["output"]
-
         if output.nil?
           @executor.logger.error { "No output in response" }
           return "Error: No output in OpenAI response"
         end
 
         # Check if output is an array (as per documentation)
-        if output.is_a?(Array) && !output.empty?
+        if output.is_a?(Array) && output.any?
+          new_conversation = conversation_array.dup
+          new_conversation.concat(output)
           # Check if there are function calls
           function_calls = output.select { |item| item["type"] == "function_call" }
-
           if function_calls.any?
-            # Check if we already have a conversation going
-            if conversation_array.empty?
-              # First depth - build new conversation
-              new_conversation = build_conversation_with_outputs(function_calls)
-            else
-              # Subsequent depth - append to existing conversation
-              # Don't re-add function calls, just add the new ones and their outputs
-              new_conversation = conversation_array.dup
-              append_new_outputs(function_calls, new_conversation)
-            end
-
-            # Recursively process with updated conversation
+            append_new_outputs(function_calls, new_conversation)
             process_responses_api(nil, new_conversation, response_id, depth + 1)
           else
-            # Look for text response
             extract_text_response(output)
           end
         else

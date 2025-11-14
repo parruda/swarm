@@ -5,7 +5,7 @@ module ClaudeSwarm
     class ChatCompletion
       MAX_TURNS_WITH_TOOLS = 100_000 # virtually infinite
 
-      def initialize(openai_client:, mcp_client:, available_tools:, executor:, instance_name:, model:, temperature: nil, reasoning_effort: nil)
+      def initialize(openai_client:, mcp_client:, available_tools:, executor:, instance_name:, model:, temperature: nil, reasoning_effort: nil, zdr: false)
         @openai_client = openai_client
         @mcp_client = mcp_client
         @available_tools = available_tools
@@ -14,6 +14,7 @@ module ClaudeSwarm
         @model = model
         @temperature = temperature
         @reasoning_effort = reasoning_effort
+        @zdr = zdr # Not used in chat_completion API, but kept for compatibility
         @conversation_messages = []
       end
 

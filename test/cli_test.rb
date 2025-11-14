@@ -213,11 +213,110 @@ class CLITest < Minitest::Test
       openai_token_env: nil,
       base_url: nil,
       reasoning_effort: nil,
+      zdr: nil, # nil when not explicitly set in options
     }
 
     ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
       assert_equal(expected_config, config)
       assert_equal("parent_instance", calling_instance)
+      server_mock
+    }) do
+      @cli.mcp_serve
+    end
+
+    server_mock.verify
+  end
+
+  def test_mcp_serve_with_zdr_true
+    @cli.options = {
+      name: "zdr_instance",
+      directory: @tmpdir,
+      model: "gpt-4o-reasoning",
+      calling_instance: "parent",
+      provider: "openai",
+      api_version: "responses",
+      zdr: true,
+      reasoning_effort: "high",
+    }
+
+    server_mock = Minitest::Mock.new
+    server_mock.expect(:start, nil)
+
+    expected_config = {
+      name: "zdr_instance",
+      directory: @tmpdir,
+      directories: [@tmpdir],
+      model: "gpt-4o-reasoning",
+      prompt: nil,
+      description: nil,
+      allowed_tools: [],
+      disallowed_tools: [],
+      connections: [],
+      mcp_config_path: nil,
+      vibe: false,
+      instance_id: nil,
+      claude_session_id: nil,
+      provider: "openai",
+      temperature: nil,
+      api_version: "responses",
+      openai_token_env: nil,
+      base_url: nil,
+      reasoning_effort: "high",
+      zdr: true,
+    }
+
+    ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
+      assert_equal(expected_config, config)
+      assert_equal("parent", calling_instance)
+      assert_nil(debug) # debug is nil when not specified
+      server_mock
+    }) do
+      @cli.mcp_serve
+    end
+
+    server_mock.verify
+  end
+
+  def test_mcp_serve_with_zdr_false
+    @cli.options = {
+      name: "no_zdr_instance",
+      directory: @tmpdir,
+      model: "gpt-4o",
+      calling_instance: "parent",
+      provider: "openai",
+      zdr: false,
+    }
+
+    server_mock = Minitest::Mock.new
+    server_mock.expect(:start, nil)
+
+    expected_config = {
+      name: "no_zdr_instance",
+      directory: @tmpdir,
+      directories: [@tmpdir],
+      model: "gpt-4o",
+      prompt: nil,
+      description: nil,
+      allowed_tools: [],
+      disallowed_tools: [],
+      connections: [],
+      mcp_config_path: nil,
+      vibe: false,
+      instance_id: nil,
+      claude_session_id: nil,
+      provider: "openai",
+      temperature: nil,
+      api_version: nil,
+      openai_token_env: nil,
+      base_url: nil,
+      reasoning_effort: nil,
+      zdr: false,
+    }
+
+    ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
+      assert_equal(expected_config, config)
+      assert_equal("parent", calling_instance)
+      assert_nil(debug) # debug is nil when not specified
       server_mock
     }) do
       @cli.mcp_serve
@@ -374,6 +473,7 @@ class CLITest < Minitest::Test
       openai_token_env: nil,
       base_url: nil,
       reasoning_effort: nil,
+      zdr: nil,
     }
 
     ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument

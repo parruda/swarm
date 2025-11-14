@@ -560,4 +560,86 @@ class ClaudeMcpServerTest < Minitest::Test
   ensure
     ENV.delete("TEST_OPENAI_API_KEY")
   end
+
+  def test_zdr_passed_to_openai_executor
+    ENV["TEST_OPENAI_API_KEY"] = "test-key-123"
+
+    # Test with zdr: true
+    openai_config_with_zdr = @instance_config.merge(
+      provider: "openai",
+      model: "gpt-4o-reasoning",
+      api_version: "responses",
+      openai_token_env: "TEST_OPENAI_API_KEY",
+      zdr: true,
+      reasoning_effort: "high",
+    )
+
+    # Mock OpenAI::Executor.new to capture parameters
+    actual_params = nil
+    mock_executor = Minitest::Mock.new
+    mock_executor.expect(:logger, Logger.new(nil))
+    mock_executor.expect(:session_path, @session_path)
+
+    ClaudeSwarm::OpenAI::Executor.stub(:new, lambda { |**params|
+      actual_params = params
+      mock_executor
+    }) do
+      ClaudeSwarm::ClaudeMcpServer.new(openai_config_with_zdr, calling_instance: "test_caller", debug: false)
+    end
+
+    # Verify zdr was passed correctly
+    assert(actual_params[:zdr])
+    assert_equal("responses", actual_params[:api_version])
+    assert_equal("high", actual_params[:reasoning_effort])
+    assert_equal("gpt-4o-reasoning", actual_params[:model])
+
+    mock_executor.verify
+
+    # Test with zdr: false
+    openai_config_without_zdr = @instance_config.merge(
+      provider: "openai",
+      api_version: "chat_completion",
+      openai_token_env: "TEST_OPENAI_API_KEY",
+      zdr: false,
+    )
+
+    actual_params = nil
+    mock_executor2 = Minitest::Mock.new
+    mock_executor2.expect(:logger, Logger.new(nil))
+    mock_executor2.expect(:session_path, @session_path)
+
+    ClaudeSwarm::OpenAI::Executor.stub(:new, lambda { |**params|
+      actual_params = params
+      mock_executor2
+    }) do
+      ClaudeSwarm::ClaudeMcpServer.new(openai_config_without_zdr, calling_instance: "test_caller", debug: false)
+    end
+
+    refute(actual_params[:zdr])
+    mock_executor2.verify
+
+    # Test with zdr not specified (should be nil)
+    openai_config_no_zdr = @instance_config.merge(
+      provider: "openai",
+      api_version: "chat_completion",
+      openai_token_env: "TEST_OPENAI_API_KEY",
+    )
+
+    actual_params = nil
+    mock_executor3 = Minitest::Mock.new
+    mock_executor3.expect(:logger, Logger.new(nil))
+    mock_executor3.expect(:session_path, @session_path)
+
+    ClaudeSwarm::OpenAI::Executor.stub(:new, lambda { |**params|
+      actual_params = params
+      mock_executor3
+    }) do
+      ClaudeSwarm::ClaudeMcpServer.new(openai_config_no_zdr, calling_instance: "test_caller", debug: false)
+    end
+
+    assert_nil(actual_params[:zdr])
+    mock_executor3.verify
+  ensure
+    ENV.delete("TEST_OPENAI_API_KEY")
+  end
 end

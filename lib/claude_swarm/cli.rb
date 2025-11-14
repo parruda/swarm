@@ -172,6 +172,10 @@ module ClaudeSwarm
     method_option :reasoning_effort,
       type: :string,
       desc: "Reasoning effort for OpenAI models"
+    method_option :zdr,
+      type: :boolean,
+      default: false,
+      desc: "Enable ZDR for OpenAI models"
     def mcp_serve
       # Validate reasoning_effort if provided
       if options[:reasoning_effort]
@@ -208,6 +212,7 @@ module ClaudeSwarm
         openai_token_env: options[:openai_token_env],
         base_url: options[:base_url],
         reasoning_effort: options[:reasoning_effort],
+        zdr: options[:zdr],
       }
 
       begin

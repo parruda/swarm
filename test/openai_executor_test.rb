@@ -55,6 +55,99 @@ module OpenAI
       assert_equal(@tmpdir, executor.working_directory)
     end
 
+    def test_initialization_with_zdr_parameter
+      # Test with zdr: true
+      executor_with_zdr = ClaudeSwarm::OpenAI::Executor.new(
+        working_directory: @tmpdir,
+        model: "gpt-4o-reasoning",
+        instance_name: "test-instance",
+        instance_id: "test-123",
+        api_version: "responses",
+        reasoning_effort: "high",
+        zdr: true,
+        openai_token_env: "TEST_OPENAI_API_KEY",
+        debug: false,
+      )
+
+      # Verify executor is created successfully
+      assert_instance_of(ClaudeSwarm::OpenAI::Executor, executor_with_zdr)
+      # Verify the zdr parameter is stored
+      assert(executor_with_zdr.instance_variable_get(:@zdr))
+
+      # Test with zdr: false (explicit false)
+      executor_without_zdr = ClaudeSwarm::OpenAI::Executor.new(
+        working_directory: @tmpdir,
+        model: "gpt-4o",
+        instance_name: "test-instance",
+        instance_id: "test-124",
+        api_version: "chat_completion",
+        zdr: false,
+        openai_token_env: "TEST_OPENAI_API_KEY",
+        debug: false,
+      )
+
+      assert_instance_of(ClaudeSwarm::OpenAI::Executor, executor_without_zdr)
+      refute(executor_without_zdr.instance_variable_get(:@zdr))
+
+      # Test default value (when zdr is not specified)
+      executor_default = ClaudeSwarm::OpenAI::Executor.new(
+        working_directory: @tmpdir,
+        model: "gpt-4o",
+        instance_name: "test-instance",
+        instance_id: "test-125",
+        openai_token_env: "TEST_OPENAI_API_KEY",
+        debug: false,
+      )
+
+      assert_instance_of(ClaudeSwarm::OpenAI::Executor, executor_default)
+      # Default value should be false
+      refute(executor_default.instance_variable_get(:@zdr))
+    end
+
+    def test_zdr_passed_to_api_handler
+      # Mock the API handlers to verify zdr is passed correctly
+
+      # Test with Responses API and zdr: true
+      mock_responses_handler = Minitest::Mock.new
+      ClaudeSwarm::OpenAI::Responses.stub(:new, lambda { |**params|
+        # Verify zdr is passed correctly
+        assert(params[:zdr])
+        assert_equal("gpt-4o-reasoning", params[:model])
+        assert_equal("high", params[:reasoning_effort])
+        mock_responses_handler
+      }) do
+        ClaudeSwarm::OpenAI::Executor.new(
+          working_directory: @tmpdir,
+          model: "gpt-4o-reasoning",
+          instance_name: "test-instance",
+          api_version: "responses",
+          reasoning_effort: "high",
+          zdr: true,
+          openai_token_env: "TEST_OPENAI_API_KEY",
+          debug: false,
+        )
+      end
+
+      # Test with ChatCompletion API and zdr: false
+      mock_chat_handler = Minitest::Mock.new
+      ClaudeSwarm::OpenAI::ChatCompletion.stub(:new, lambda { |**params|
+        # Verify zdr is passed correctly
+        refute(params[:zdr])
+        assert_equal("gpt-4o", params[:model])
+        mock_chat_handler
+      }) do
+        ClaudeSwarm::OpenAI::Executor.new(
+          working_directory: @tmpdir,
+          model: "gpt-4o",
+          instance_name: "test-instance",
+          api_version: "chat_completion",
+          zdr: false,
+          openai_token_env: "TEST_OPENAI_API_KEY",
+          debug: false,
+        )
+      end
+    end
+
     def test_initialization_fails_without_api_key
       ENV.delete("TEST_OPENAI_API_KEY")
 

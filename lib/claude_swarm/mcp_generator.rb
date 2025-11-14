@@ -174,6 +174,7 @@ module ClaudeSwarm
           args.push("--api-version", instance[:api_version]) if instance[:api_version]
           args.push("--openai-token-env", instance[:openai_token_env]) if instance[:openai_token_env]
           args.push("--base-url", instance[:base_url]) if instance[:base_url]
+          args.push("--zdr", instance[:zdr].to_s) if instance.key?(:zdr)
         end
       end
 

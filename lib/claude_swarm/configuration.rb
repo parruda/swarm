@@ -4,7 +4,7 @@ module ClaudeSwarm
   class Configuration
     # Frozen constants for validation
     VALID_PROVIDERS = ["claude", "openai"].freeze
-    OPENAI_SPECIFIC_FIELDS = ["temperature", "api_version", "openai_token_env", "base_url", "reasoning_effort"].freeze
+    OPENAI_SPECIFIC_FIELDS = ["temperature", "api_version", "openai_token_env", "base_url", "reasoning_effort", "zdr"].freeze
     VALID_API_VERSIONS = ["chat_completion", "responses"].freeze
     VALID_REASONING_EFFORTS = ["low", "medium", "high"].freeze
 
@@ -232,6 +232,7 @@ module ClaudeSwarm
         instance_config[:openai_token_env] = config["openai_token_env"] || "OPENAI_API_KEY"
         instance_config[:base_url] = config["base_url"]
         instance_config[:reasoning_effort] = config["reasoning_effort"] if config["reasoning_effort"]
+        instance_config[:zdr] = config["zdr"] if config.key?("zdr")
         # Default vibe to true for OpenAI instances if not specified
         instance_config[:vibe] = true if config["vibe"].nil?
       elsif config["vibe"].nil?
