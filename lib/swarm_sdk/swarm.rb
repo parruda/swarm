@@ -942,7 +942,7 @@ module SwarmSDK
         provider: agent_def.provider || "openai",
         directory: agent_def.directory,
         system_prompt: agent_def.system_prompt,
-        tools: chat.tools.keys,
+        tools: chat.tool_names,
         delegates_to: agent_def.delegates_to,
         plugin_storages: plugin_storage_info,
         is_delegation_instance: is_delegation,

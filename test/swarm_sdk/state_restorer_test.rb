@@ -1202,6 +1202,7 @@ module SwarmSDK
 
     class MockAgentChat
       attr_reader :messages
+      alias_method :internal_messages, :messages
 
       def initialize
         @messages = []
@@ -1246,6 +1247,7 @@ module SwarmSDK
 
     class MockDelegationChat
       attr_reader :messages
+      alias_method :internal_messages, :messages
 
       def initialize
         @messages = []

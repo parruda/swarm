@@ -104,7 +104,7 @@ module SwarmSDK
     # @param agent_chat [Agent::Chat] Agent chat instance
     # @return [Array<Hash>] Serialized messages
     def snapshot_conversation(agent_chat)
-      messages = agent_chat.messages
+      messages = agent_chat.internal_messages
       messages.map { |msg| serialize_message(msg) }
     end
 

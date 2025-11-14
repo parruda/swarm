@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat < RubyLLM::Chat
+    class Chat
       # Helper methods for logging and serialization of tool calls and results
       #
       # Responsibilities:

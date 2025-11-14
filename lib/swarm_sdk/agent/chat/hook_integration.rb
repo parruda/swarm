@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat < RubyLLM::Chat
+    class Chat
       # Integrates SwarmSDK's hook system with Agent::Chat
       #
       # Responsibilities:
@@ -71,39 +71,16 @@ module SwarmSDK
           @hook_agent_hooks[event].sort_by! { |cb| -cb.priority }
         end
 
-        # Override ask to trigger user_prompt hooks
+        # NOTE: The ask() method override has been removed.
         #
-        # This wraps the Agent::Chat#ask implementation to inject hooks AFTER
-        # system reminders are handled.
+        # In the new wrapper-based architecture, Agent::Chat#ask handles:
+        # 1. System reminder injection
+        # 2. User prompt hooks via trigger_user_prompt
+        # 3. Global semaphore acquisition
+        # 4. Delegation to RubyLLM::Chat
         #
-        # @param prompt [String] User prompt
-        # @param options [Hash] Additional options (may include source: "user" or "delegation")
-        # @return [RubyLLM::Message] LLM response
-        def ask(prompt, **options)
-          # Extract source for hook tracking (not passed to RubyLLM)
-          source = options.delete(:source) || "user"
-
-          # Trigger user_prompt hook before sending to LLM (can halt or modify prompt)
-          if @hook_executor
-            hook_result = trigger_user_prompt(prompt, source: source)
-
-            # Check if hook halted execution
-            if hook_result[:halted]
-              # Return a halted message instead of calling LLM
-              return RubyLLM::Message.new(
-                role: :assistant,
-                content: hook_result[:halt_message],
-                model_id: model.id,
-              )
-            end
-
-            # Use modified prompt if hook provided one (stdout injection)
-            prompt = hook_result[:modified_prompt] if hook_result[:modified_prompt]
-          end
-
-          # Call original ask implementation (Agent::Chat handles system reminders)
-          super(prompt, **options)
-        end
+        # The hook integration is now done directly in Agent::Chat#ask rather than
+        # through module override, since there's no inheritance chain to call super on.
 
         # Override check_context_warnings to trigger our hook system
         #
@@ -125,7 +102,7 @@ module SwarmSDK
             LogStream.emit(
               type: "context_limit_warning",
               agent: @agent_context.name,
-              model: model.id,
+              model: model_id,
               threshold: "#{threshold}%",
               current_usage: "#{current_percentage}%",
               tokens_used: cumulative_total_tokens,
@@ -264,8 +241,8 @@ module SwarmSDK
           return { halted: false, modified_prompt: prompt } unless @hook_executor
 
           # Filter out delegation tools from tools list
-          actual_tools = if respond_to?(:tools) && @agent_context
-            tools.keys.reject { |tool_name| @agent_context.delegation_tool?(tool_name.to_s) }
+          actual_tools = if respond_to?(:internal_tools) && @agent_context
+            internal_tools.keys.reject { |tool_name| @agent_context.delegation_tool?(tool_name.to_s) }
           else
             []
           end
@@ -281,9 +258,9 @@ module SwarmSDK
             event: :user_prompt,
             metadata: {
               prompt: prompt,
-              message_count: messages.size,
-              model: model.id,
-              provider: model.provider,
+              message_count: message_count,
+              model: model_id,
+              provider: model_provider,
               tools: actual_tools,
               delegates_to: delegate_agents,
               source: source,

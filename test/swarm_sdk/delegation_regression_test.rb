@@ -44,7 +44,7 @@ module SwarmSDK
 
       # Verify delegation tool was created
       assert(
-        lead_agent.tools.key?(:WorkWithBackend),
+        lead_agent.has_tool?(:WorkWithBackend),
         "Lead should have backend delegation tool",
       )
 
@@ -82,7 +82,7 @@ module SwarmSDK
 
       # Verify delegation tool was created
       assert(
-        lead_agent.tools.key?(:WorkWithBackend),
+        lead_agent.has_tool?(:WorkWithBackend),
         "Lead should have backend delegation tool",
       )
 
@@ -144,9 +144,9 @@ module SwarmSDK
       assert(backend_instance, "Should have delegation instance")
 
       # Verify default tools are registered
-      assert(backend_instance.tools.key?(:Read), "Should have Read tool")
-      assert(backend_instance.tools.key?(:Grep), "Should have Grep tool")
-      assert(backend_instance.tools.key?(:Glob), "Should have Glob tool")
+      assert(backend_instance.has_tool?(:Read), "Should have Read tool")
+      assert(backend_instance.has_tool?(:Grep), "Should have Grep tool")
+      assert(backend_instance.has_tool?(:Glob), "Should have Glob tool")
     end
 
     # Test: Scratchpad tools registered for delegation instances
@@ -180,13 +180,13 @@ module SwarmSDK
       backend_instance = swarm.agent(:backend)
 
       # Verify scratchpad tools are registered
-      assert(backend_instance.tools.key?(:ScratchpadWrite), "Should have ScratchpadWrite")
-      assert(backend_instance.tools.key?(:ScratchpadRead), "Should have ScratchpadRead")
-      assert(backend_instance.tools.key?(:ScratchpadList), "Should have ScratchpadList")
+      assert(backend_instance.has_tool?(:ScratchpadWrite), "Should have ScratchpadWrite")
+      assert(backend_instance.has_tool?(:ScratchpadRead), "Should have ScratchpadRead")
+      assert(backend_instance.has_tool?(:ScratchpadList), "Should have ScratchpadList")
 
       # Verify scratchpad is shared (same storage object)
       # We can test this behaviorally by writing from one instance and reading from another
-      backend_instance.tools[:ScratchpadWrite].execute(
+      backend_instance.internal_tools[:ScratchpadWrite].execute(
         file_path: "test/note",
         content: "Test content",
         title: "Test",
@@ -194,7 +194,7 @@ module SwarmSDK
 
       # Primary backend should see the same scratchpad entry (it's the same instance)
       primary_backend = swarm.agent(:backend)
-      list_result = primary_backend.tools[:ScratchpadList].execute
+      list_result = primary_backend.internal_tools[:ScratchpadList].execute
 
       assert_includes(list_result, "test/note", "Scratchpad should be shared")
     end
@@ -228,9 +228,9 @@ module SwarmSDK
       backend_instance = swarm.delegation_instances["backend@frontend"]
 
       # Verify custom tools are registered
-      assert(backend_instance.tools.key?(:Read), "Should have Read tool")
-      assert(backend_instance.tools.key?(:Write), "Should have Write tool")
-      assert(backend_instance.tools.key?(:Bash), "Should have Bash tool")
+      assert(backend_instance.has_tool?(:Read), "Should have Read tool")
+      assert(backend_instance.has_tool?(:Write), "Should have Write tool")
+      assert(backend_instance.has_tool?(:Bash), "Should have Bash tool")
 
       # Cleanup should work without errors
       swarm.cleanup
