@@ -70,15 +70,15 @@ module SwarmSDK
       agent = swarm.agent(:developer)
 
       # Should have explicitly configured tools
-      assert(agent.tools.key?(:Write), "Should have Write")
+      assert(agent.has_tool?(:Write), "Should have Write")
 
       # Should have all default tools
-      assert(agent.tools.key?(:Read), "Should have default Read")
-      assert(agent.tools.key?(:Grep), "Should have default Grep")
-      assert(agent.tools.key?(:Glob), "Should have default Glob")
-      assert(agent.tools.key?(:ScratchpadWrite), "Should have default ScratchpadWrite")
-      assert(agent.tools.key?(:ScratchpadRead), "Should have default ScratchpadRead")
-      assert(agent.tools.key?(:ScratchpadList), "Should have default ScratchpadList")
+      assert(agent.has_tool?(:Read), "Should have default Read")
+      assert(agent.has_tool?(:Grep), "Should have default Grep")
+      assert(agent.has_tool?(:Glob), "Should have default Glob")
+      assert(agent.has_tool?(:ScratchpadWrite), "Should have default ScratchpadWrite")
+      assert(agent.has_tool?(:ScratchpadRead), "Should have default ScratchpadRead")
+      assert(agent.has_tool?(:ScratchpadList), "Should have default ScratchpadList")
     end
 
     def test_agent_can_exclude_default_tools
@@ -98,13 +98,13 @@ module SwarmSDK
       agent = swarm.agent(:developer)
 
       # Should have only explicitly configured tools
-      assert(agent.tools.key?(:Write), "Should have Write")
-      assert(agent.tools.key?(:Edit), "Should have Edit")
+      assert(agent.has_tool?(:Write), "Should have Write")
+      assert(agent.has_tool?(:Edit), "Should have Edit")
 
       # Should NOT have any default tools
-      refute(agent.tools.key?(:Read), "Should NOT have Read")
-      refute(agent.tools.key?(:Grep), "Should NOT have Grep")
-      refute(agent.tools.key?(:ScratchpadWrite), "Should NOT have ScratchpadWrite")
+      refute(agent.has_tool?(:Read), "Should NOT have Read")
+      refute(agent.has_tool?(:Grep), "Should NOT have Grep")
+      refute(agent.has_tool?(:ScratchpadWrite), "Should NOT have ScratchpadWrite")
     end
 
     def test_agent_with_no_tools_still_gets_defaults
@@ -123,9 +123,9 @@ module SwarmSDK
       agent = swarm.agent(:developer)
 
       # Should have all default tools
-      assert(agent.tools.key?(:Read), "Should have default Read")
-      assert(agent.tools.key?(:Grep), "Should have default Grep")
-      assert(agent.tools.key?(:ScratchpadWrite), "Should have default ScratchpadWrite")
+      assert(agent.has_tool?(:Read), "Should have default Read")
+      assert(agent.has_tool?(:Grep), "Should have default Grep")
+      assert(agent.has_tool?(:ScratchpadWrite), "Should have default ScratchpadWrite")
     end
 
     def test_agent_with_no_tools_and_no_defaults_has_nothing
@@ -145,7 +145,7 @@ module SwarmSDK
       agent = swarm.agent(:developer)
 
       # Should have NO tools
-      assert_empty(agent.tools, "Should have no tools")
+      assert_empty(agent.tool_names, "Should have no tools")
     end
 
     def test_disable_specific_default_tools
@@ -163,15 +163,15 @@ module SwarmSDK
       agent = swarm.agent(:developer)
 
       # Should NOT have disabled tools
-      refute(agent.tools.key?(:Read), "Should NOT have Read")
-      refute(agent.tools.key?(:Grep), "Should NOT have Grep")
+      refute(agent.has_tool?(:Read), "Should NOT have Read")
+      refute(agent.has_tool?(:Grep), "Should NOT have Grep")
 
       # Should have other default tools
-      assert(agent.tools.key?(:Glob), "Should have Glob")
-      assert(agent.tools.key?(:ScratchpadWrite), "Should have ScratchpadWrite")
+      assert(agent.has_tool?(:Glob), "Should have Glob")
+      assert(agent.has_tool?(:ScratchpadWrite), "Should have ScratchpadWrite")
 
       # Should have explicit tool
-      assert(agent.tools.key?(:Write), "Should have Write")
+      assert(agent.has_tool?(:Write), "Should have Write")
     end
 
     def test_disable_default_tools_via_dsl_true
@@ -191,12 +191,12 @@ module SwarmSDK
       agent_chat = swarm.agent(:agent1)
 
       # Should NOT have any default tools
-      refute(agent_chat.tools.key?(:Read), "Should NOT have Read")
-      refute(agent_chat.tools.key?(:Grep), "Should NOT have Grep")
-      refute(agent_chat.tools.key?(:Glob), "Should NOT have Glob")
+      refute(agent_chat.has_tool?(:Read), "Should NOT have Read")
+      refute(agent_chat.has_tool?(:Grep), "Should NOT have Grep")
+      refute(agent_chat.has_tool?(:Glob), "Should NOT have Glob")
 
       # Should have explicit tool
-      assert(agent_chat.tools.key?(:Write), "Should have Write")
+      assert(agent_chat.has_tool?(:Write), "Should have Write")
     end
 
     def test_disable_default_tools_via_dsl_array
@@ -215,11 +215,11 @@ module SwarmSDK
       agent_chat = swarm.agent(:agent1)
 
       # Should NOT have disabled tools
-      refute(agent_chat.tools.key?(:Read), "Should NOT have Read")
-      refute(agent_chat.tools.key?(:Grep), "Should NOT have Grep")
+      refute(agent_chat.has_tool?(:Read), "Should NOT have Read")
+      refute(agent_chat.has_tool?(:Grep), "Should NOT have Grep")
 
       # Should have other default tools
-      assert(agent_chat.tools.key?(:Glob), "Should have Glob")
+      assert(agent_chat.has_tool?(:Glob), "Should have Glob")
     end
 
     def test_disable_default_tools_via_dsl_single_symbol
@@ -238,11 +238,11 @@ module SwarmSDK
       agent_chat = swarm.agent(:agent1)
 
       # Should NOT have disabled tool
-      refute(agent_chat.tools.key?(:Read), "Should NOT have Read")
+      refute(agent_chat.has_tool?(:Read), "Should NOT have Read")
 
       # Should have other default tools
-      assert(agent_chat.tools.key?(:Grep), "Should have Grep")
-      assert(agent_chat.tools.key?(:Glob), "Should have Glob")
+      assert(agent_chat.has_tool?(:Grep), "Should have Grep")
+      assert(agent_chat.has_tool?(:Glob), "Should have Glob")
     end
 
     def test_disable_default_tools_via_dsl_varargs
@@ -261,11 +261,11 @@ module SwarmSDK
       agent_chat = swarm.agent(:agent1)
 
       # Should NOT have disabled tools
-      refute(agent_chat.tools.key?(:Read), "Should NOT have Read")
-      refute(agent_chat.tools.key?(:Grep), "Should NOT have Grep")
+      refute(agent_chat.has_tool?(:Read), "Should NOT have Read")
+      refute(agent_chat.has_tool?(:Grep), "Should NOT have Grep")
 
       # Should have other default tools
-      assert(agent_chat.tools.key?(:Glob), "Should have Glob")
+      assert(agent_chat.has_tool?(:Glob), "Should have Glob")
     end
   end
 end

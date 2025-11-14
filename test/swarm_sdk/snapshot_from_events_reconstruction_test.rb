@@ -291,7 +291,7 @@ module SwarmSDK
       # 1. Conversation should have history
       backend_agent = swarm2.agent(:backend)
 
-      refute_empty(backend_agent.messages, "Messages should be restored")
+      refute_empty(backend_agent.internal_messages, "Messages should be restored")
 
       # 2. Scratchpad should be restored
       scratchpad_entries = swarm2.scratchpad_storage.all_entries
@@ -549,7 +549,7 @@ module SwarmSDK
       # Verify history is maintained
       backend = swarm2.agent(:backend)
 
-      assert_operator(backend.messages.size, :>, 2, "Should have history from both executions")
+      assert_operator(backend.internal_messages.size, :>, 2, "Should have history from both executions")
     end
 
     def test_reconstruct_with_multiple_agents

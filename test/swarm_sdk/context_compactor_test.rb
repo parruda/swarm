@@ -192,6 +192,7 @@ module SwarmSDK
       # Use a simple object that responds to messages
       mock_chat = Object.new
       mock_chat.define_singleton_method(:messages) { @messages ||= [] }
+      mock_chat.define_singleton_method(:internal_messages) { @messages ||= [] }
       mock_chat.define_singleton_method(:provider) do
         provider_obj = Object.new
         provider_obj.define_singleton_method(:agent_name) { :test_agent }

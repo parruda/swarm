@@ -219,7 +219,7 @@ module SwarmSDK
     # @return [void]
     def restore_agent_conversation(agent_chat, agent_name, snapshot_data)
       # Clear existing messages FIRST
-      messages = agent_chat.messages
+      messages = agent_chat.internal_messages
       messages.clear
 
       # Determine which system prompt to use
@@ -349,7 +349,7 @@ module SwarmSDK
     # @return [void]
     def restore_delegation_conversation(delegation_chat, base_name, snapshot_data)
       # Clear existing messages
-      messages = delegation_chat.messages
+      messages = delegation_chat.internal_messages
       messages.clear
 
       # Determine which system prompt to use

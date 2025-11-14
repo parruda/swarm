@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **Agent::Chat Abstraction Layer**: Refactored Agent::Chat from inheritance to composition with RubyLLM::Chat
+  - **Removed direct access**: SDK consumers can no longer access `.tools`, `.messages`, or `.model` directly
+  - **New abstraction methods**: SwarmSDK-specific API that hides RubyLLM internals
+    - `has_tool?(name)` - Check if tool exists by name (symbol or string)
+    - `tool_names` - Get array of tool names (symbols)
+    - `model_id` - Get model identifier string
+    - `model_provider` - Get model provider string
+    - `message_count` - Get number of messages in conversation
+    - `has_user_message?` - Check if conversation has any user messages
+    - `last_assistant_message` - Get most recent assistant message
+    - `take_snapshot` - Serialize conversation for persistence
+    - `restore_snapshot(data)` - Restore conversation from serialized data
+  - **Internal access methods**: For helper modules that need direct access
+    - `internal_messages` - Direct array of RubyLLM messages (for internal use only)
+    - `internal_tools` - Direct hash of tool instances (for internal use only)
+    - `internal_model` - Direct RubyLLM model object (for internal use only)
+  - **Migration**:
+    - `chat.tools.key?(:Read)` → `chat.has_tool?(:Read)`
+    - `chat.tools.keys` → `chat.tool_names`
+    - `chat.model.id` → `chat.model_id`
+    - `chat.model.provider` → `chat.model_provider`
+    - `chat.messages.count` → `chat.message_count`
+    - `chat.messages` (for internal modules) → `chat.internal_messages`
+  - **Improved encapsulation**: Prevents tight coupling to RubyLLM internals, making future LLM library changes easier
+  - **Files affected**:
+    - `lib/swarm_sdk/agent/chat.rb` - Core abstraction implementation
+    - `lib/swarm_sdk/swarm.rb` - Uses `tool_names` instead of `tools.keys`
+    - `lib/swarm_sdk/state_snapshot.rb` - Uses `internal_messages`
+    - `lib/swarm_sdk/state_restorer.rb` - Uses `internal_messages`
+    - `lib/swarm_sdk/context_compactor.rb` - Uses `internal_messages`
+    - `lib/swarm_sdk/agent/chat/hook_integration.rb` - Uses abstraction methods
+    - `lib/swarm_sdk/agent/chat/system_reminder_injector.rb` - Uses abstraction methods
+    - `lib/swarm_sdk/agent/chat/context_tracker.rb` - Uses `model_id`
+
 - **MAJOR REFACTORING**: Separated Swarm and Workflow into distinct, clear APIs
   - `SwarmSDK.build` now ONLY returns `Swarm` (simple multi-agent collaboration)
   - New `SwarmSDK.workflow` API for multi-stage workflows (returns `Workflow`)

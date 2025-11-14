@@ -117,7 +117,7 @@ module SwarmSDK
       end
 
       # Force tool call by accessing tools
-      read_tool = lead_agent.tools[:Read]
+      read_tool = lead_agent.internal_tools[:Read]
 
       assert(read_tool, "Read tool should be available")
 
@@ -145,7 +145,7 @@ module SwarmSDK
 
       # Get the delegation tool directly
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:WorkWithBackend]
+      delegation_tool = lead_agent.internal_tools[:WorkWithBackend]
 
       result = delegation_tool.execute(message: "Build API")
 
@@ -172,7 +172,7 @@ module SwarmSDK
       end
 
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:WorkWithBackend]
+      delegation_tool = lead_agent.internal_tools[:WorkWithBackend]
 
       result = delegation_tool.execute(message: "mock Build API")
 
@@ -198,7 +198,7 @@ module SwarmSDK
       end
 
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:WorkWithBackend]
+      delegation_tool = lead_agent.internal_tools[:WorkWithBackend]
 
       result = delegation_tool.execute(message: "Build API")
 
@@ -224,7 +224,7 @@ module SwarmSDK
       backend_agent.define_singleton_method(:ask) { |_, **_options| Struct.new(:content).new("Done") }
 
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:WorkWithBackend]
+      delegation_tool = lead_agent.internal_tools[:WorkWithBackend]
 
       delegation_tool.execute(message: "Test task")
 
@@ -257,7 +257,7 @@ module SwarmSDK
       end
 
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:WorkWithBackend]
+      delegation_tool = lead_agent.internal_tools[:WorkWithBackend]
 
       delegation_tool.execute(message: "Test task")
 
@@ -329,7 +329,7 @@ module SwarmSDK
         unless delegation_called
           delegation_called = true
           # Call the delegation tool
-          delegation_tool = tools[:WorkWithBackend]
+          delegation_tool = internal_tools[:WorkWithBackend]
           delegation_tool&.execute(message: "Build API")
         end
         Struct.new(:content).new("Lead response")

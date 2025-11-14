@@ -209,23 +209,23 @@ module SwarmSDK
     def test_error_handling_with_wait_true
       swarm = build_test_swarm
 
-      # Stub complete() to raise an exception (bypass HTTP entirely)
-      # This avoids the 90-second blocking delay from Faraday's connection pool
-      error_proc = proc { raise JSON::ParserError, "simulated parse error" }
+      # Stub HTTP request to return malformed response (causes JSON parse error)
+      stub_request(:post, "https://api.openai.com/v1/chat/completions")
+        .to_return(
+          status: 200,
+          body: "this is not valid JSON",
+          headers: { "Content-Type" => "application/json" },
+        )
 
-      # Get agent (triggers lazy initialization internally via public API)
-      agent = swarm.agent(:test_agent)
-      agent.stub(:complete, error_proc) do
-        # Blocking execution should handle errors gracefully
-        result = swarm.execute("Test prompt", wait: true)
+      # Blocking execution should handle errors gracefully
+      result = swarm.execute("Test prompt", wait: true)
 
-        # Should return a Result with error (not raise)
-        assert_instance_of(Result, result)
-        refute_predicate(result, :success?)
-        assert(result.error)
-        assert_kind_of(StandardError, result.error)
-        assert_includes(result.error.message, "parse error")
-      end
+      # Should return a Result with error (not raise)
+      assert_instance_of(Result, result)
+      refute_predicate(result, :success?)
+      assert(result.error)
+      assert_kind_of(StandardError, result.error)
+      assert_match(/json|parse|token/i, result.error.message)
     end
 
     # Test 9: MCP cleanup happens in both modes

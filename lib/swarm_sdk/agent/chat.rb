@@ -2,52 +2,65 @@
 
 module SwarmSDK
   module Agent
-    # Chat extends RubyLLM::Chat to enable parallel agent-to-agent tool calling
-    # with two-level rate limiting to prevent API quota exhaustion
-    #
-    # ## Rate Limiting Strategy
-    #
-    # In hierarchical agent trees, unlimited parallelism can cause exponential growth:
-    #   Main → 10 agents → 100 agents → 1,000 agents = API meltdown!
-    #
-    # Solution: Two-level semaphore system
-    # 1. **Global semaphore** - Total concurrent LLM calls across entire swarm
-    # 2. **Local semaphore** - Max concurrent tool calls for this specific agent
+    # Chat wraps RubyLLM::Chat to provide SwarmSDK orchestration capabilities
     #
     # ## Architecture
     #
-    # This class is now organized with clear separation of concerns:
-    # - Core (this file): Initialization, provider setup, rate limiting, parallel execution
-    # - SystemReminderInjector: First message reminders, TodoWrite reminders
-    # - LoggingHelpers: Tool call formatting, result serialization
-    # - ContextTracker: Logging callbacks, delegation tracking
-    # - HookIntegration: Hook system integration (wraps tool execution with hooks)
-    class Chat < RubyLLM::Chat
+    # This class uses **composition** with RubyLLM::Chat:
+    # - RubyLLM::Chat handles: LLM API, messages, tools, concurrent execution
+    # - SwarmSDK::Agent::Chat adds: hooks, reminders, semaphores, event enrichment
+    #
+    # ## Rate Limiting Strategy
+    #
+    # Two-level semaphore system prevents API quota exhaustion in hierarchical agent trees:
+    # 1. **Global semaphore** - Serializes ask() calls across entire swarm
+    # 2. **Local semaphore** - Limits concurrent tool calls per agent (via RubyLLM)
+    #
+    # ## Event Flow
+    #
+    # RubyLLM events → SwarmSDK subscribes → enriches with context → emits SwarmSDK events
+    # This allows hooks to fire on SwarmSDK events with full agent context.
+    class Chat
+      # Include event emitter for multi-subscriber callbacks
+      include EventEmitter
+
       # Include logging helpers for tool call formatting
       include LoggingHelpers
 
-      # Include hook integration for user_prompt hooks and hook trigger methods
-      # This module overrides ask() to inject user_prompt hooks
-      # and provides trigger methods for pre/post tool use hooks
+      # Include hook integration for pre/post tool hooks
       include HookIntegration
 
       # Register custom provider for responses API support
-      # This is done once at class load time
       unless RubyLLM::Provider.providers.key?(:openai_with_responses)
         RubyLLM::Provider.register(:openai_with_responses, SwarmSDK::Providers::OpenAIWithResponses)
       end
 
-      # Initialize AgentChat with rate limiting
+      # SwarmSDK-specific accessors
+      attr_reader :global_semaphore,
+        :real_model_info,
+        :context_tracker,
+        :context_manager,
+        :agent_context,
+        :last_todowrite_message_index,
+        :active_skill_path,
+        :provider # Stored during initialization since RubyLLM::Chat doesn't expose it
+
+      # Setters for snapshot/restore
+      attr_writer :last_todowrite_message_index, :active_skill_path
+
+      # Initialize AgentChat with RubyLLM::Chat wrapper
       #
       # @param definition [Hash] Agent definition containing all configuration
       # @param agent_name [Symbol, nil] Agent identifier (for plugin callbacks)
-      # @param global_semaphore [Async::Semaphore, nil] Shared across all agents (not part of definition)
-      # @param options [Hash] Additional options to pass to RubyLLM::Chat
-      # @raise [ArgumentError] If provider doesn't support custom base_url or provider not specified with base_url
+      # @param global_semaphore [Async::Semaphore, nil] Shared across all agents
+      # @param options [Hash] Additional options
       def initialize(definition:, agent_name: nil, global_semaphore: nil, **options)
+        # Initialize event emitter system
+        initialize_event_emitter
+
         # Extract configuration from definition
-        model = definition[:model]
-        provider = definition[:provider]
+        model_id = definition[:model]
+        provider_name = definition[:provider]
         context_window = definition[:context_window]
         max_concurrent_tools = definition[:max_concurrent_tools]
         base_url = definition[:base_url]
@@ -56,49 +69,20 @@ module SwarmSDK
         assume_model_exists = definition[:assume_model_exists]
         system_prompt = definition[:system_prompt]
         parameters = definition[:parameters]
-        headers = definition[:headers]
-
-        # Create isolated context if custom base_url or timeout specified
-        if base_url || timeout != Definition::DEFAULT_TIMEOUT
-          # Provider is required when using custom base_url
-          raise ArgumentError, "Provider must be specified when base_url is set" if base_url && !provider
-
-          # Determine actual provider to use
-          actual_provider = determine_provider(provider, base_url, api_version)
-          RubyLLM.logger.debug("SwarmSDK Agent::Chat: Using provider '#{actual_provider}' (requested='#{provider}', api_version='#{api_version}')")
-
-          context = build_custom_context(provider: provider, base_url: base_url, timeout: timeout)
-
-          # Use assume_model_exists to bypass model validation for custom endpoints
-          # Default to true when base_url is set, false otherwise (unless explicitly specified)
-          assume_model_exists = base_url ? true : false if assume_model_exists.nil?
-
-          super(model: model, provider: actual_provider, assume_model_exists: assume_model_exists, context: context, **options)
-
-          # Configure custom provider after creation (RubyLLM doesn't support custom init params)
-          if actual_provider == :openai_with_responses && api_version == "v1/responses"
-            configure_responses_api_provider
-          end
-        elsif provider
-          # No custom base_url or timeout: use RubyLLM's defaults (with optional provider override)
-          assume_model_exists = false if assume_model_exists.nil?
-          super(model: model, provider: provider, assume_model_exists: assume_model_exists, **options)
-        else
-          # No custom base_url, timeout, or provider: use RubyLLM's defaults
-          assume_model_exists = false if assume_model_exists.nil?
-          super(model: model, assume_model_exists: assume_model_exists, **options)
-        end
+        custom_headers = definition[:headers]
 
         # Agent identifier (for plugin callbacks)
         @agent_name = agent_name
 
-        # Context manager for ephemeral messages and future context optimization
+        # Context manager for ephemeral messages
         @context_manager = ContextManager.new
 
-        # Rate limiting semaphores
+        # Rate limiting
         @global_semaphore = global_semaphore
-        @local_semaphore = max_concurrent_tools ? Async::Semaphore.new(max_concurrent_tools) : nil
         @explicit_context_window = context_window
+
+        # Serialize ask() calls to prevent message corruption
+        @ask_semaphore = Async::Semaphore.new(1)
 
         # Track TodoWrite usage for periodic reminders
         @last_todowrite_message_index = nil
@@ -109,41 +93,141 @@ module SwarmSDK
         # Context tracker (created after agent_context is set)
         @context_tracker = nil
 
-        # Track which tools are immutable (cannot be removed by dynamic tool swapping)
-        # Default: Think, Clock, and TodoWrite are immutable utilities
-        # Plugins can mark additional tools as immutable via on_agent_initialized hook
+        # Track immutable tools
         @immutable_tool_names = Set.new(["Think", "Clock", "TodoWrite"])
 
         # Track active skill (only used if memory enabled)
         @active_skill_path = nil
 
-        # Try to fetch real model info for accurate context tracking
-        # This searches across ALL providers, so it works even when using proxies
-        # (e.g., Claude model through OpenAI-compatible proxy)
-        fetch_real_model_info(model)
+        # Store options for later use
+        @init_params = options[:params] || {}
+        @init_headers = options[:headers] || {}
 
-        # Configure system prompt, parameters, and headers after parent initialization
+        # Create internal RubyLLM::Chat instance and extract provider
+        @llm_chat, @provider = create_llm_chat(
+          model_id: model_id,
+          provider_name: provider_name,
+          base_url: base_url,
+          api_version: api_version,
+          timeout: timeout,
+          assume_model_exists: assume_model_exists,
+          max_concurrent_tools: max_concurrent_tools,
+        )
+
+        # Try to fetch real model info for accurate context tracking
+        fetch_real_model_info(model_id)
+
+        # Configure system prompt, parameters, and headers
         with_instructions(system_prompt) if system_prompt
         configure_parameters(parameters)
-        configure_headers(headers)
+        configure_headers(custom_headers)
+
+        # Setup around_tool_execution hook for SwarmSDK orchestration
+        setup_tool_execution_hook
+
+        # Setup event bridging from RubyLLM to SwarmSDK
+        setup_event_bridging
       end
+
+      # --- SwarmSDK Abstraction API ---
+      # These methods provide SwarmSDK-specific semantics without exposing RubyLLM internals
+
+      # Model information
+      def model_id
+        @llm_chat.model.id
+      end
+
+      def model_provider
+        @llm_chat.model.provider
+      end
+
+      def model_context_window
+        @real_model_info&.context_window || @llm_chat.model.context_window
+      end
+
+      # Tool introspection
+      def has_tool?(name)
+        @llm_chat.tools.key?(name.to_s) || @llm_chat.tools.key?(name.to_sym)
+      end
+
+      def tool_names
+        @llm_chat.tools.values.map(&:name).sort
+      end
+
+      def tool_count
+        @llm_chat.tools.size
+      end
+
+      def remove_tool(name)
+        @llm_chat.tools.delete(name.to_s) || @llm_chat.tools.delete(name.to_sym)
+      end
+
+      # Message introspection
+      def message_count
+        @llm_chat.messages.size
+      end
+
+      def has_user_message?
+        @llm_chat.messages.any? { |msg| msg.role == :user }
+      end
+
+      def last_assistant_message
+        @llm_chat.messages.reverse.find { |msg| msg.role == :assistant }
+      end
+
+      # Conversation snapshot/restore for persistence
+      def conversation_snapshot
+        {
+          messages: @llm_chat.messages.map { |msg| serialize_message(msg) },
+          model_id: model_id,
+          provider: model_provider,
+          timestamp: Time.now.utc.iso8601,
+        }
+      end
+
+      def restore_conversation(snapshot)
+        raise ArgumentError, "Invalid snapshot: missing messages" unless snapshot[:messages]
+
+        # Clear and restore messages
+        @llm_chat.messages.clear
+        snapshot[:messages].each do |msg_data|
+          @llm_chat.messages << deserialize_message(msg_data)
+        end
+
+        self
+      end
+
+      # --- Internal Access (for helper modules only) ---
+      # These methods provide raw access to RubyLLM internals for internal Chat modules
+      # (ContextTracker, SystemReminderInjector, HookIntegration, etc.)
+      # DO NOT use these in external SDK code - use the abstraction methods above
+
+      # @!visibility private
+      def internal_messages
+        @llm_chat.messages
+      end
+
+      # @!visibility private
+      def internal_tools
+        @llm_chat.tools
+      end
+
+      # @!visibility private
+      def internal_model
+        @llm_chat.model
+      end
+
+      # --- Setup Methods ---
 
       # Setup agent context
       #
-      # Sets the agent context for this chat, enabling delegation tracking.
-      # This is always called, regardless of whether logging is enabled.
-      #
       # @param context [Agent::Context] Agent context for this chat
-      # @return [void]
       def setup_context(context)
         @agent_context = context
         @context_tracker = ContextTracker.new(self, context)
       end
 
       # Setup logging callbacks
-      #
-      # This configures the chat to emit log events via LogStream.
-      # Should only be called when LogStream.emitter is set.
       #
       # @return [void]
       def setup_logging
@@ -154,9 +238,6 @@ module SwarmSDK
       end
 
       # Emit model lookup warning if one occurred during initialization
-      #
-      # If a model wasn't found in the registry during initialization, this will
-      # emit a proper JSON log event through LogStream.
       #
       # @param agent_name [Symbol, String] The agent name for logging context
       def emit_model_lookup_warning(agent_name)
@@ -173,46 +254,116 @@ module SwarmSDK
         )
       end
 
+      # --- Fluent API Methods (delegate to RubyLLM::Chat) ---
+
+      # Set system instructions for the conversation
+      #
+      # @param instructions [String] System prompt/instructions
+      # @param replace [Boolean] Replace existing system messages if true
+      # @return [self] for chaining
+      def with_instructions(instructions, replace: false)
+        @llm_chat.with_instructions(instructions, replace: replace)
+        self
+      end
+
+      # Add a tool to this chat
+      #
+      # @param tool [Class, RubyLLM::Tool] Tool class or instance
+      # @return [self] for chaining
+      def with_tool(tool)
+        @llm_chat.with_tool(tool)
+        self
+      end
+
+      # Add multiple tools to this chat
+      #
+      # @param tools [Array] Tool classes or instances
+      # @param replace [Boolean] Clear existing tools if true
+      # @return [self] for chaining
+      def with_tools(*tools_list, replace: false)
+        @llm_chat.with_tools(*tools_list, replace: replace)
+        self
+      end
+
+      # Set temperature for LLM calls
+      #
+      # @param temp [Float] Temperature value (0.0-2.0)
+      # @return [self] for chaining
+      def with_temperature(temp)
+        @llm_chat.with_temperature(temp)
+        self
+      end
+
+      # Set additional parameters for LLM calls
+      #
+      # @param new_params [Hash] Parameters to merge
+      # @return [self] for chaining
+      def with_params(**new_params)
+        @llm_chat.with_params(**new_params)
+        self
+      end
+
+      # Set additional headers for LLM calls
+      #
+      # @param new_headers [Hash] Headers to merge
+      # @return [self] for chaining
+      def with_headers(**new_headers)
+        @llm_chat.with_headers(**new_headers)
+        self
+      end
+
+      # Set JSON schema for structured output
+      #
+      # @param new_schema [Hash, RubyLLM::Schema] Schema for structured output
+      # @return [self] for chaining
+      def with_schema(new_schema)
+        @llm_chat.with_schema(new_schema)
+        self
+      end
+
+      # Complete the current conversation (no additional prompt)
+      #
+      # Delegates to RubyLLM::Chat#complete after applying semaphores.
+      #
+      # @param options [Hash] Additional options
+      # @return [RubyLLM::Message] LLM response
+      def complete(**options)
+        @ask_semaphore.acquire do
+          execute_with_global_semaphore do
+            catch(:finish_agent) do
+              catch(:finish_swarm) do
+                @llm_chat.complete(**options)
+              end
+            end
+          end
+        end
+      end
+
       # Mark tools as immutable (cannot be removed by dynamic tool swapping)
       #
-      # Called by plugins during on_agent_initialized lifecycle hook to mark
-      # their tools as immutable. This allows plugins to protect their core
-      # tools from being removed by dynamic tool swapping operations.
-      #
       # @param tool_names [Array<String>] Tool names to mark as immutable
-      # @return [void]
       def mark_tools_immutable(*tool_names)
         @immutable_tool_names.merge(tool_names.flatten.map(&:to_s))
       end
 
       # Remove all mutable tools (keeps immutable tools)
       #
-      # Used by LoadSkill to swap tools. Only works if called from a tool
-      # that has been given access to the chat instance.
-      #
       # @return [void]
       def remove_mutable_tools
-        @tools.select! { |tool| @immutable_tool_names.include?(tool.name) }
+        mutable_tool_names = tools.keys.reject { |name| @immutable_tool_names.include?(name.to_s) }
+        mutable_tool_names.each { |name| tools.delete(name) }
       end
 
       # Add a tool instance dynamically
       #
-      # Used by LoadSkill to add skill-required tools after removing mutable tools.
-      # This is just a convenience wrapper around with_tool.
-      #
       # @param tool_instance [RubyLLM::Tool] Tool to add
-      # @return [void]
       def add_tool(tool_instance)
         with_tool(tool_instance)
       end
 
       # Mark skill as loaded (tracking for debugging/logging)
       #
-      # Called by LoadSkill after successfully swapping tools.
-      # This can be used for logging or debugging purposes.
-      #
       # @param file_path [String] Path to loaded skill
-      # @return [void]
       def mark_skill_loaded(file_path)
         @active_skill_path = file_path
       end
@@ -226,183 +377,122 @@ module SwarmSDK
 
       # Clear conversation history
       #
-      # Removes all messages from the conversation history and clears tool executions.
-      # Used by composable swarms when keep_context: false is specified.
-      #
       # @return [void]
       def clear_conversation
-        @messages.clear if @messages.respond_to?(:clear)
+        @llm_chat.reset_messages!
         @context_manager&.clear_ephemeral
       end
 
-      # Override ask to inject system reminders and periodic TodoWrite reminders
+      # --- Core Conversation Methods ---
+
+      # Send a message to the LLM and get a response
       #
-      # Note: This is called BEFORE HookIntegration#ask (due to module include order),
-      # so HookIntegration will wrap this and inject user_prompt hooks.
+      # This method:
+      # 1. Serializes concurrent asks via @ask_semaphore
+      # 2. Injects system reminders as ephemeral messages
+      # 3. Triggers user_prompt hooks
+      # 4. Acquires global semaphore for LLM call
+      # 5. Delegates to RubyLLM::Chat for actual execution
       #
       # @param prompt [String] User prompt
-      # @param options [Hash] Additional options to pass to complete
+      # @param options [Hash] Additional options (source: for hooks)
       # @return [RubyLLM::Message] LLM response
       def ask(prompt, **options)
-        # Serialize ask() calls to prevent message corruption from concurrent fibers
-        # Uses Async::Semaphore (not Mutex) because SwarmSDK runs in fiber context
-        # This protects against parallel delegation scenarios where multiple delegation
-        # instances call the same underlying primary agent (e.g., tester@frontend and
-        # tester@backend both calling database in parallel).
-        @ask_semaphore ||= Async::Semaphore.new(1)
-
         @ask_semaphore.acquire do
-          # Check if this is the first user message
-          is_first = SystemReminderInjector.first_message?(self)
+          is_first = first_message?
 
-          if is_first
-            # Collect plugin reminders first
-            plugin_reminders = collect_plugin_reminders(prompt, is_first_message: true)
+          # Build prompt with system reminders
+          full_prompt = build_prompt_with_reminders(prompt, is_first)
 
-            # Build full prompt with embedded plugin reminders
-            full_prompt = prompt
-            plugin_reminders.each do |reminder|
-              full_prompt = "#{full_prompt}\n\n#{reminder}"
+          # Trigger user_prompt hook
+          source = options.delete(:source) || "user"
+          if @hook_executor
+            hook_result = trigger_user_prompt(full_prompt, source: source)
+
+            if hook_result[:halted]
+              return RubyLLM::Message.new(
+                role: :assistant,
+                content: hook_result[:halt_message],
+                model_id: model.id,
+              )
             end
 
-            # Inject first message reminders (includes system reminders + toolset + after)
-            # SystemReminderInjector will embed all reminders in the prompt via add_message
-            SystemReminderInjector.inject_first_message_reminders(self, full_prompt)
-
-            # Trigger user_prompt hook manually since we're bypassing the normal ask flow
-            if @hook_executor
-              # Extract source from options if provided, default to "user"
-              source = options[:source] || "user"
-              hook_result = trigger_user_prompt(prompt, source: source)
-
-              # Check if hook halted execution
-              if hook_result[:halted]
-                # Return a halted message instead of calling LLM
-                return RubyLLM::Message.new(
-                  role: :assistant,
-                  content: hook_result[:halt_message],
-                  model_id: model.id,
-                )
-              end
-
-              # NOTE: We ignore modified_prompt for first message since reminders already injected
-            end
-
-            # Call complete to get LLM response
-            complete(**options)
-          else
-            # Build prompt with embedded reminders (if needed)
-            full_prompt = prompt
-
-            # Add periodic TodoWrite reminder if needed (only if agent has TodoWrite tool)
-            if tools.key?("TodoWrite") && SystemReminderInjector.should_inject_todowrite_reminder?(self, @last_todowrite_message_index)
-              full_prompt = "#{full_prompt}\n\n#{SystemReminderInjector::TODOWRITE_PERIODIC_REMINDER}"
-              # Update tracking
-              @last_todowrite_message_index = SystemReminderInjector.find_last_todowrite_index(self)
-            end
-
-            # Collect plugin reminders and embed them
-            plugin_reminders = collect_plugin_reminders(full_prompt, is_first_message: false)
-            plugin_reminders.each do |reminder|
-              full_prompt = "#{full_prompt}\n\n#{reminder}"
-            end
-
-            # Normal ask behavior for subsequent messages
-            # This calls super which goes to HookIntegration's ask override
-            # HookIntegration will call add_message, and we'll extract reminders there
-            super(full_prompt, **options)
+            full_prompt = hook_result[:modified_prompt] if hook_result[:modified_prompt]
           end
+
+          # Execute with global semaphore
+          response = execute_with_global_semaphore do
+            catch(:finish_agent) do
+              catch(:finish_swarm) do
+                @llm_chat.ask(full_prompt, **options)
+              end
+            end
+          end
+
+          # Handle finish markers from hooks
+          handle_finish_marker(response)
         end
       end
 
-      # Override add_message to automatically extract and strip system reminders
+      # Add a message to the conversation history
       #
-      # System reminders are extracted and tracked as ephemeral content (embedded
-      # when sent to LLM but not persisted in conversation history).
+      # Automatically extracts and strips system reminders, tracking them as ephemeral.
       #
       # @param message_or_attributes [RubyLLM::Message, Hash] Message object or attributes hash
-      # @return [RubyLLM::Message] The added message (with clean content)
+      # @return [RubyLLM::Message] The added message
       def add_message(message_or_attributes)
-        # Handle both forms: add_message(message) and add_message({role: :user, content: "text"})
-        if message_or_attributes.is_a?(RubyLLM::Message)
-          # Message object provided
-          msg = message_or_attributes
-          content_str = msg.content.is_a?(RubyLLM::Content) ? msg.content.text : msg.content.to_s
-
-          # Extract system reminders
-          if @context_manager.has_system_reminders?(content_str)
-            reminders = @context_manager.extract_system_reminders(content_str)
-            clean_content_str = @context_manager.strip_system_reminders(content_str)
-
-            clean_content = if msg.content.is_a?(RubyLLM::Content)
-              RubyLLM::Content.new(clean_content_str, msg.content.attachments)
-            else
-              clean_content_str
-            end
-
-            clean_message = RubyLLM::Message.new(
-              role: msg.role,
-              content: clean_content,
-              tool_call_id: msg.tool_call_id,
-            )
-
-            result = super(clean_message)
-
-            # Track reminders as ephemeral
-            reminders.each do |reminder|
-              @context_manager.add_ephemeral_reminder(reminder, messages_array: @messages)
-            end
-
-            result
-          else
-            # No reminders - call parent normally
-            super(msg)
-          end
+        message = if message_or_attributes.is_a?(RubyLLM::Message)
+          message_or_attributes
         else
-          # Hash attributes provided
-          attrs = message_or_attributes
-          content_value = attrs[:content] || attrs["content"]
-          content_str = content_value.is_a?(RubyLLM::Content) ? content_value.text : content_value.to_s
+          RubyLLM::Message.new(message_or_attributes)
+        end
 
-          # Extract system reminders
-          if @context_manager.has_system_reminders?(content_str)
-            reminders = @context_manager.extract_system_reminders(content_str)
-            clean_content_str = @context_manager.strip_system_reminders(content_str)
+        # Extract system reminders if present
+        content_str = message.content.is_a?(RubyLLM::Content) ? message.content.text : message.content.to_s
 
-            clean_content = if content_value.is_a?(RubyLLM::Content)
-              RubyLLM::Content.new(clean_content_str, content_value.attachments)
-            else
-              clean_content_str
-            end
+        if @context_manager.has_system_reminders?(content_str)
+          reminders = @context_manager.extract_system_reminders(content_str)
+          clean_content_str = @context_manager.strip_system_reminders(content_str)
 
-            clean_attrs = attrs.merge(content: clean_content)
-            result = super(clean_attrs)
-
-            # Track reminders as ephemeral
-            reminders.each do |reminder|
-              @context_manager.add_ephemeral_reminder(reminder, messages_array: @messages)
-            end
-
-            result
+          clean_content = if message.content.is_a?(RubyLLM::Content)
+            RubyLLM::Content.new(clean_content_str, message.content.attachments)
           else
-            # No reminders - call parent normally
-            super(attrs)
+            clean_content_str
           end
+
+          clean_message = RubyLLM::Message.new(
+            role: message.role,
+            content: clean_content,
+            tool_call_id: message.tool_call_id,
+            tool_calls: message.tool_calls,
+            model_id: message.model_id,
+            input_tokens: message.input_tokens,
+            output_tokens: message.output_tokens,
+            cached_tokens: message.cached_tokens,
+            cache_creation_tokens: message.cache_creation_tokens,
+          )
+
+          @llm_chat.add_message(clean_message)
+
+          # Track reminders as ephemeral
+          reminders.each do |reminder|
+            @context_manager.add_ephemeral_reminder(reminder, messages_array: messages)
+          end
+
+          clean_message
+        else
+          @llm_chat.add_message(message)
         end
       end
 
       # Collect reminders from all plugins
       #
-      # Plugins can contribute system reminders based on the user's message.
-      # Returns array of reminder strings to be embedded in the user prompt.
-      #
       # @param prompt [String] User's message
       # @param is_first_message [Boolean] True if first message
       # @return [Array<String>] Array of reminder strings
       def collect_plugin_reminders(prompt, is_first_message:)
-        return [] unless @agent_name # Skip if agent_name not set
+        return [] unless @agent_name
 
-        # Collect reminders from all plugins
         PluginRegistry.all.flat_map do |plugin|
           plugin.on_user_message(
             agent_name: @agent_name,
@@ -412,319 +502,15 @@ module SwarmSDK
         end.compact
       end
 
-      # Override complete() to inject ephemeral messages
-      #
-      # Ephemeral messages are sent to the LLM for the current turn only
-      # and are NOT stored in the conversation history. This prevents
-      # system reminders from accumulating and being resent every turn.
-      #
-      # @param options [Hash] Options to pass to provider
-      # @return [RubyLLM::Message] LLM response
-      def complete(**options, &block)
-        # Prepare messages: persistent + ephemeral for this turn
-        messages_for_llm = @context_manager.prepare_for_llm(@messages)
-
-        # Call provider with retry logic for transient failures
-        response = call_llm_with_retry do
-          @provider.complete(
-            messages_for_llm,
-            tools: @tools,
-            temperature: @temperature,
-            model: @model,
-            params: @params,
-            headers: @headers,
-            schema: @schema,
-            &wrap_streaming_block(&block)
-          )
-        end
-
-        # Handle nil response from provider (malformed API response)
-        if response.nil?
-          raise StandardError, "Provider returned nil response. This usually indicates a malformed API response " \
-            "that couldn't be parsed.\n\n" \
-            "Provider: #{@provider.class.name}\n" \
-            "API Base: #{@provider.api_base}\n" \
-            "Model: #{@model.id}\n" \
-            "Response: #{response.inspect}\n\n" \
-            "The API endpoint returned a response that couldn't be parsed into a valid Message object. " \
-            "Enable RubyLLM debug logging (RubyLLM.logger.level = Logger::DEBUG) to see the raw API response."
-        end
-
-        @on[:new_message]&.call unless block
-
-        # Handle schema parsing if needed
-        if @schema && response.content.is_a?(String)
-          begin
-            response.content = JSON.parse(response.content)
-          rescue JSON::ParserError
-            # Keep as string if parsing fails
-          end
-        end
-
-        # Add response to persistent history
-        add_message(response)
-        @on[:end_message]&.call(response)
-
-        # Clear ephemeral messages after use
-        @context_manager.clear_ephemeral
-
-        # Handle tool calls if present
-        if response.tool_call?
-          handle_tool_calls(response, &block)
-        else
-          response
-        end
-      end
-
-      # Override handle_tool_calls to execute multiple tool calls in parallel with rate limiting.
-      #
-      # RubyLLM's default implementation executes tool calls one at a time. This
-      # override uses Async to execute all tool calls concurrently, with semaphores
-      # to prevent API quota exhaustion. Hooks are integrated via HookIntegration module.
-      #
-      # @param response [RubyLLM::Message] LLM response with tool calls
-      # @param block [Proc] Optional block passed through to complete
-      # @return [RubyLLM::Message] Final response when loop completes
-      def handle_tool_calls(response, &block)
-        # Single tool call: sequential execution with hooks
-        if response.tool_calls.size == 1
-          tool_call = response.tool_calls.values.first
-
-          # Handle pre_tool_use hook (skip for delegation tools)
-          unless delegation_tool_call?(tool_call)
-            # Trigger pre_tool_use hook (can block or provide custom result)
-            pre_result = trigger_pre_tool_use(tool_call)
-
-            # Handle finish_agent marker
-            if pre_result[:finish_agent]
-              message = RubyLLM::Message.new(
-                role: :assistant,
-                content: pre_result[:custom_result],
-                model_id: model.id,
-              )
-              # Set custom finish reason before triggering on_end_message
-              @context_tracker.finish_reason_override = "finish_agent" if @context_tracker
-              # Trigger on_end_message to ensure agent_stop event is emitted
-              @on[:end_message]&.call(message)
-              return message
-            end
-
-            # Handle finish_swarm marker
-            if pre_result[:finish_swarm]
-              return { __finish_swarm__: true, message: pre_result[:custom_result] }
-            end
-
-            # Handle blocked execution
-            unless pre_result[:proceed]
-              content = pre_result[:custom_result] || "Tool execution blocked by hook"
-              message = add_message(
-                role: :tool,
-                content: content,
-                tool_call_id: tool_call.id,
-              )
-              @on[:end_message]&.call(message)
-              return complete(&block)
-            end
-          end
-
-          # Execute tool
-          @on[:tool_call]&.call(tool_call)
-
-          result = execute_tool_with_error_handling(tool_call)
-
-          @on[:tool_result]&.call(result)
-
-          # Trigger post_tool_use hook (skip for delegation tools)
-          unless delegation_tool_call?(tool_call)
-            result = trigger_post_tool_use(result, tool_call: tool_call)
-          end
-
-          # Check for finish markers from hooks
-          if result.is_a?(Hash)
-            if result[:__finish_agent__]
-              # Finish this agent with the provided message
-              message = RubyLLM::Message.new(
-                role: :assistant,
-                content: result[:message],
-                model_id: model.id,
-              )
-              # Set custom finish reason before triggering on_end_message
-              @context_tracker.finish_reason_override = "finish_agent" if @context_tracker
-              # Trigger on_end_message to ensure agent_stop event is emitted
-              @on[:end_message]&.call(message)
-              return message
-            elsif result[:__finish_swarm__]
-              # Propagate finish_swarm marker up (don't add to conversation)
-              return result
-            end
-          end
-
-          # Check for halt result
-          return result if result.is_a?(RubyLLM::Tool::Halt)
-
-          # Add tool result to conversation
-          # add_message automatically extracts reminders and stores them as ephemeral
-          content = result.is_a?(RubyLLM::Content) ? result : result.to_s
-          message = add_message(
-            role: :tool,
-            content: content,
-            tool_call_id: tool_call.id,
-          )
-          @on[:end_message]&.call(message)
-
-          # Continue loop
-          return complete(&block)
-        end
-
-        # Multiple tool calls: execute in parallel with rate limiting and hooks
-        halt_result = nil
-
-        results = Async do
-          tasks = response.tool_calls.map do |_id, tool_call|
-            Async do
-              # Acquire semaphores (queues if limit reached)
-              acquire_semaphores do
-                @on[:tool_call]&.call(tool_call)
-
-                # Handle pre_tool_use hook (skip for delegation tools)
-                unless delegation_tool_call?(tool_call)
-                  pre_result = trigger_pre_tool_use(tool_call)
-
-                  # Handle finish markers first (early exit)
-                  # Don't call on_tool_result for finish markers - they're not tool results
-                  if pre_result[:finish_agent]
-                    result = { __finish_agent__: true, message: pre_result[:custom_result] }
-                    next { tool_call: tool_call, result: result, message: nil }
-                  end
-
-                  if pre_result[:finish_swarm]
-                    result = { __finish_swarm__: true, message: pre_result[:custom_result] }
-                    next { tool_call: tool_call, result: result, message: nil }
-                  end
-
-                  # Handle blocked execution
-                  unless pre_result[:proceed]
-                    result = pre_result[:custom_result] || "Tool execution blocked by hook"
-                    @on[:tool_result]&.call(result)
-
-                    # add_message automatically extracts reminders
-                    content = result.is_a?(RubyLLM::Content) ? result : result.to_s
-                    message = add_message(
-                      role: :tool,
-                      content: content,
-                      tool_call_id: tool_call.id,
-                    )
-                    @on[:end_message]&.call(message)
-
-                    next { tool_call: tool_call, result: result, message: message }
-                  end
-                end
-
-                # Execute tool - Faraday yields during HTTP I/O
-                result = execute_tool_with_error_handling(tool_call)
-
-                @on[:tool_result]&.call(result)
-
-                # Trigger post_tool_use hook (skip for delegation tools)
-                unless delegation_tool_call?(tool_call)
-                  result = trigger_post_tool_use(result, tool_call: tool_call)
-                end
-
-                # Check if result is a finish marker (don't add to conversation)
-                if result.is_a?(Hash) && (result[:__finish_agent__] || result[:__finish_swarm__])
-                  # Finish markers will be detected after parallel execution completes
-                  { tool_call: tool_call, result: result, message: nil }
-                else
-                  # Add tool result to conversation
-                  # add_message automatically extracts reminders and stores them as ephemeral
-                  content = result.is_a?(RubyLLM::Content) ? result : result.to_s
-                  message = add_message(
-                    role: :tool,
-                    content: content,
-                    tool_call_id: tool_call.id,
-                  )
-                  @on[:end_message]&.call(message)
-
-                  # Return result data for collection
-                  { tool_call: tool_call, result: result, message: message }
-                end
-              end
-            end
-          end
-
-          # Wait for all tasks to complete
-          tasks.map(&:wait)
-        end.wait
-
-        # Check for halt and finish results
-        results.each do |data|
-          result = data[:result]
-
-          # Check for halt result (from tool execution errors)
-          if result.is_a?(RubyLLM::Tool::Halt)
-            halt_result = result
-            # Continue checking for finish markers below
-          end
-
-          # Check for finish markers (from hooks)
-          if result.is_a?(Hash)
-            if result[:__finish_agent__]
-              message = RubyLLM::Message.new(
-                role: :assistant,
-                content: result[:message],
-                model_id: model.id,
-              )
-              # Set custom finish reason before triggering on_end_message
-              @context_tracker.finish_reason_override = "finish_agent" if @context_tracker
-              # Trigger on_end_message to ensure agent_stop event is emitted
-              @on[:end_message]&.call(message)
-              return message
-            elsif result[:__finish_swarm__]
-              # Propagate finish_swarm marker up
-              return result
-            end
-          end
-        end
-
-        # Return halt result if we found one (but no finish markers)
-        halt_result = results.find { |data| data[:result].is_a?(RubyLLM::Tool::Halt) }&.dig(:result)
-
-        # Continue automatic loop (recursive call to complete)
-        halt_result || complete(&block)
-      end
-
-      # Get the provider instance
-      #
-      # Exposes the RubyLLM provider instance for configuration.
-      # This is needed for setting agent_name and other provider-specific settings.
-      #
-      # @return [RubyLLM::Provider::Base] Provider instance
-      attr_reader :provider, :global_semaphore, :local_semaphore, :real_model_info, :context_tracker, :context_manager, :agent_context, :last_todowrite_message_index, :active_skill_path
-
-      # Setters for snapshot/restore
-      attr_writer :last_todowrite_message_index, :active_skill_path
-
-      # Expose messages array (inherited from RubyLLM::Chat but not publicly accessible)
-      #
-      # @return [Array<RubyLLM::Message>] Conversation messages
-      attr_reader :messages
+      # --- Context Window Tracking ---
 
       # Get context window limit for the current model
       #
-      # Priority order:
-      # 1. Explicit context_window parameter (user override)
-      # 2. Real model info from RubyLLM registry (searched across all providers)
-      # 3. Model info from chat (may be nil if assume_model_exists was used)
-      #
-      # @return [Integer, nil] Maximum context tokens, or nil if not available
+      # @return [Integer, nil] Maximum context tokens
       def context_limit
-        # Priority 1: Explicit override
         return @explicit_context_window if @explicit_context_window
-
-        # Priority 2: Real model info from registry (searched across all providers)
         return @real_model_info.context_window if @real_model_info&.context_window
 
-        # Priority 3: Fall back to model from chat
         model.context_window
       rescue StandardError
         nil
@@ -732,66 +518,49 @@ module SwarmSDK
 
       # Calculate cumulative input tokens for the conversation
       #
-      # The latest assistant message's input_tokens already includes the cumulative
-      # total for the entire conversation (all previous messages, system instructions,
-      # tool definitions, etc.). We don't sum across messages as that would double-count.
-      #
-      # @return [Integer] Total input tokens used in conversation
+      # @return [Integer] Total input tokens used
       def cumulative_input_tokens
-        # Find the latest assistant message with input_tokens
-        messages.reverse.find { |msg| msg.role == :assistant && msg.input_tokens }&.input_tokens || 0
+        internal_messages.reverse.find { |msg| msg.role == :assistant && msg.input_tokens }&.input_tokens || 0
       end
 
       # Calculate cumulative output tokens across all assistant messages
       #
-      # Unlike input tokens, output tokens are per-response and should be summed.
-      #
-      # @return [Integer] Total output tokens used in conversation
+      # @return [Integer] Total output tokens used
       def cumulative_output_tokens
-        messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.output_tokens || 0 }
+        internal_messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.output_tokens || 0 }
       end
 
-      # Calculate cumulative cached tokens across all assistant messages
+      # Calculate cumulative cached tokens
       #
-      # Cached tokens are portions of prompts served from the provider's cache.
-      # OpenAI reports this automatically for prompts >1024 tokens.
-      # Anthropic/Bedrock expose cache control via Content::Raw blocks.
-      #
-      # @return [Integer] Total cached tokens used in conversation
+      # @return [Integer] Total cached tokens used
       def cumulative_cached_tokens
-        messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.cached_tokens || 0 }
+        internal_messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.cached_tokens || 0 }
       end
 
       # Calculate cumulative cache creation tokens
       #
-      # Cache creation tokens are written to the cache (Anthropic/Bedrock only).
-      # These are charged at the normal input rate when first created.
-      #
       # @return [Integer] Total tokens written to cache
       def cumulative_cache_creation_tokens
-        messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.cache_creation_tokens || 0 }
+        internal_messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.cache_creation_tokens || 0 }
       end
 
       # Calculate effective input tokens (excluding cache hits)
       #
-      # This represents the actual tokens charged for input, excluding cached portions.
-      # Useful for accurate cost tracking when using prompt caching.
-      #
-      # @return [Integer] Actual input tokens charged (input minus cached)
+      # @return [Integer] Actual input tokens charged
       def effective_input_tokens
         cumulative_input_tokens - cumulative_cached_tokens
       end
 
       # Calculate total tokens used (input + output)
       #
-      # @return [Integer] Total tokens used in conversation
+      # @return [Integer] Total tokens used
       def cumulative_total_tokens
         cumulative_input_tokens + cumulative_output_tokens
       end
 
       # Calculate percentage of context window used
       #
-      # @return [Float] Percentage (0.0 to 100.0), or 0.0 if limit unavailable
+      # @return [Float] Percentage (0.0 to 100.0)
       def context_usage_percentage
         limit = context_limit
         return 0.0 if limit.nil? || limit.zero?
@@ -801,7 +570,7 @@ module SwarmSDK
 
       # Calculate remaining tokens in context window
       #
-      # @return [Integer, nil] Tokens remaining, or nil if limit unavailable
+      # @return [Integer, nil] Tokens remaining
       def tokens_remaining
         limit = context_limit
         return if limit.nil?
@@ -811,28 +580,7 @@ module SwarmSDK
 
       # Compact the conversation history to reduce token usage
       #
-      # Uses the Hybrid Production Strategy to intelligently compress the conversation:
-      # 1. Tool result pruning - Truncate tool outputs (they're 80%+ of tokens!)
-      # 2. Checkpoint creation - LLM-generated summary of conversation chunks
-      # 3. Sliding window - Keep recent messages in full detail
-      #
-      # This is a manual operation - call it when you need to free up context space.
-      # The method emits compression events via LogStream for monitoring.
-      #
-      # ## Usage
-      #
-      #   # Use defaults
-      #   metrics = agent.compact_context
-      #   puts metrics.summary
-      #
-      #   # With custom options
-      #   metrics = agent.compact_context(
-      #     tool_result_max_length: 300,
-      #     checkpoint_threshold: 40,
-      #     sliding_window_size: 15
-      #   )
-      #
-      # @param options [Hash] Compression options (see ContextCompactor::DEFAULT_OPTIONS)
+      # @param options [Hash] Compression options
       # @return [ContextCompactor::Metrics] Compression statistics
       def compact_context(**options)
         compactor = ContextCompactor.new(self, options)
@@ -841,28 +589,445 @@ module SwarmSDK
 
       private
 
-      # Inject LLM instrumentation middleware for API request/response logging
+      # --- RubyLLM::Chat Creation ---
+
+      # Create the internal RubyLLM::Chat instance
       #
-      # This middleware captures HTTP requests/responses to LLM providers and
-      # emits structured events via LogStream. Only injected when logging is enabled.
+      # @return [Array<RubyLLM::Chat, RubyLLM::Provider>] Chat instance and provider
+      def create_llm_chat(model_id:, provider_name:, base_url:, api_version:, timeout:, assume_model_exists:, max_concurrent_tools:)
+        # Determine provider and context
+        actual_provider = determine_provider(provider_name, base_url, api_version)
+
+        # Build chat options
+        chat_options = {}
+
+        # Configure concurrency (RubyLLM uses max_concurrency, not max_tool_concurrency)
+        if max_concurrent_tools
+          chat_options[:tool_concurrency] = :async
+          chat_options[:max_concurrency] = max_concurrent_tools
+        end
+
+        # Create chat with custom context if needed
+        if base_url || timeout != Definition::DEFAULT_TIMEOUT
+          raise ArgumentError, "Provider must be specified when base_url is set" if base_url && !provider_name
+
+          context = build_custom_context(provider: provider_name, base_url: base_url, timeout: timeout)
+
+          assume_model_exists = base_url ? true : false if assume_model_exists.nil?
+
+          # Resolve provider separately since RubyLLM::Chat doesn't expose it
+          _, prov = RubyLLM::Models.resolve(
+            model_id,
+            provider: actual_provider,
+            assume_exists: assume_model_exists,
+            config: context.config,
+          )
+
+          c = RubyLLM.chat(
+            model: model_id,
+            provider: actual_provider,
+            assume_model_exists: assume_model_exists,
+            context: context,
+            **chat_options,
+          )
+
+        elsif provider_name
+          assume_model_exists = false if assume_model_exists.nil?
+
+          # Resolve provider separately
+          _, prov = RubyLLM::Models.resolve(
+            model_id,
+            provider: provider_name,
+            assume_exists: assume_model_exists,
+          )
+
+          c = RubyLLM.chat(
+            model: model_id,
+            provider: provider_name,
+            assume_model_exists: assume_model_exists,
+            **chat_options,
+          )
+
+        else
+          assume_model_exists = false if assume_model_exists.nil?
+
+          # Resolve provider separately
+          _, prov = RubyLLM::Models.resolve(
+            model_id,
+            assume_exists: assume_model_exists,
+          )
+
+          c = RubyLLM.chat(
+            model: model_id,
+            assume_model_exists: assume_model_exists,
+            **chat_options,
+          )
+
+        end
+        chat = c
+        provider_instance = prov
+
+        # Configure custom provider after creation
+        if actual_provider == :openai_with_responses && api_version == "v1/responses"
+          configure_responses_api_provider(provider_instance)
+        end
+
+        [chat, provider_instance]
+      end
+
+      # --- Tool Execution Hook ---
+
+      # Setup around_tool_execution hook for SwarmSDK orchestration
+      #
+      # This hook intercepts all tool executions to:
+      # - Trigger pre_tool_use hooks (can block, replace, or finish)
+      # - Add retry logic
+      # - Trigger post_tool_use hooks (can transform results)
+      # - Handle finish markers
+      def setup_tool_execution_hook
+        @llm_chat.around_tool_execution do |tool_call, _tool_instance, execute|
+          # Skip hooks for delegation tools (they have their own events)
+          if delegation_tool_call?(tool_call)
+            execute_with_retry { execute.call }
+          else
+            # PRE-HOOK
+            pre_result = trigger_pre_tool_use(tool_call)
+
+            case pre_result
+            when Hash
+              if pre_result[:finish_agent]
+                throw(:finish_agent, { __finish_agent__: true, message: pre_result[:custom_result] })
+              elsif pre_result[:finish_swarm]
+                throw(:finish_swarm, { __finish_swarm__: true, message: pre_result[:custom_result] })
+              elsif !pre_result[:proceed]
+                # Blocked - return custom result without executing
+                next pre_result[:custom_result] || "Tool execution blocked by hook"
+              end
+            end
+
+            # EXECUTE with retry logic
+            result = execute_with_retry { execute.call }
+
+            # POST-HOOK
+            post_result = trigger_post_tool_use(result, tool_call: tool_call)
+
+            # Check for finish markers from post-hook
+            if post_result.is_a?(Hash)
+              if post_result[:__finish_agent__]
+                throw(:finish_agent, post_result)
+              elsif post_result[:__finish_swarm__]
+                throw(:finish_swarm, post_result)
+              end
+            end
+
+            post_result
+          end
+        end
+      end
+
+      # --- Event Bridging ---
+
+      # Setup event bridging from RubyLLM to SwarmSDK
+      #
+      # Subscribes to RubyLLM events and emits enriched SwarmSDK events.
+      def setup_event_bridging
+        # Bridge tool_call events
+        @llm_chat.on_tool_call do |tool_call|
+          emit(:tool_call, tool_call)
+        end
+
+        # Bridge tool_result events
+        @llm_chat.on_tool_result do |_tool_call, result|
+          emit(:tool_result, result)
+        end
+
+        # Bridge new_message events
+        @llm_chat.on_new_message do
+          emit(:new_message)
+        end
+
+        # Bridge end_message events (used for agent_step/agent_stop)
+        @llm_chat.on_end_message do |message|
+          emit(:end_message, message)
+        end
+      end
+
+      # --- Semaphore and Reminder Management ---
+
+      # Execute block with global semaphore
+      #
+      # @yield Block to execute
+      # @return [Object] Result from block
+      def execute_with_global_semaphore(&block)
+        if @global_semaphore
+          @global_semaphore.acquire(&block)
+        else
+          yield
+        end
+      end
+
+      # Build prompt with system reminders
+      #
+      # @param prompt [String] Original user prompt
+      # @param is_first [Boolean] Whether this is the first message
+      # @return [String] Prompt with embedded reminders
+      def build_prompt_with_reminders(prompt, is_first)
+        if is_first
+          # Collect plugin reminders
+          plugin_reminders = collect_plugin_reminders(prompt, is_first_message: true)
+
+          # Build full prompt with embedded plugin reminders
+          full_prompt = prompt
+          plugin_reminders.each do |reminder|
+            full_prompt = "#{full_prompt}\n\n#{reminder}"
+          end
+
+          # Add toolset reminder and after-first-message reminder
+          parts = [
+            full_prompt,
+            build_toolset_reminder,
+          ]
+
+          # Only include todo list reminder if agent has TodoWrite tool
+          parts << SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER if has_tool?(:TodoWrite)
+
+          parts.join("\n\n")
+        else
+          full_prompt = prompt
+
+          # Add periodic TodoWrite reminder if needed
+          if has_tool?(:TodoWrite) && SystemReminderInjector.should_inject_todowrite_reminder?(self, @last_todowrite_message_index)
+            full_prompt = "#{full_prompt}\n\n#{SystemReminderInjector::TODOWRITE_PERIODIC_REMINDER}"
+            @last_todowrite_message_index = SystemReminderInjector.find_last_todowrite_index(self)
+          end
+
+          # Collect plugin reminders
+          plugin_reminders = collect_plugin_reminders(full_prompt, is_first_message: false)
+          plugin_reminders.each do |reminder|
+            full_prompt = "#{full_prompt}\n\n#{reminder}"
+          end
+
+          full_prompt
+        end
+      end
+
+      # Build toolset reminder listing all available tools
+      #
+      # @return [String] System reminder with tool list
+      def build_toolset_reminder
+        tools_list = tool_names
+
+        reminder = "<system-reminder>\n"
+        reminder += "Tools available: #{tools_list.join(", ")}\n\n"
+        reminder += "Only use tools from this list. Do not attempt to use tools that are not listed here.\n"
+        reminder += "</system-reminder>"
+
+        reminder
+      end
+
+      # Check if this is the first user message
+      #
+      # @return [Boolean] true if no user messages exist yet
+      def first_message?
+        !has_user_message?
+      end
+
+      # Handle finish markers from hooks
+      #
+      # @param response [Object] Response from ask (may be a finish marker hash)
+      # @return [RubyLLM::Message] Final message
+      def handle_finish_marker(response)
+        if response.is_a?(Hash)
+          if response[:__finish_agent__]
+            message = RubyLLM::Message.new(
+              role: :assistant,
+              content: response[:message],
+              model_id: model.id,
+            )
+            @context_tracker.finish_reason_override = "finish_agent" if @context_tracker
+            emit(:end_message, message)
+            message
+          elsif response[:__finish_swarm__]
+            # Propagate finish_swarm marker up
+            response
+          else
+            # Regular response
+            response
+          end
+        else
+          response
+        end
+      end
+
+      # --- Retry Logic ---
+
+      # Execute with retry logic for transient failures
+      #
+      # @yield Block that performs the operation
+      # @return [Object] Result from block
+      def execute_with_retry(max_retries: 3, delay: 2, &block)
+        attempts = 0
+
+        loop do
+          attempts += 1
+
+          begin
+            return yield
+          rescue StandardError => e
+            if attempts >= max_retries
+              return "Error after #{max_retries} retries: #{e.message}"
+            end
+
+            LogStream.emit(
+              type: "tool_retry_attempt",
+              agent: @agent_name,
+              swarm_id: @agent_context&.swarm_id,
+              attempt: attempts,
+              max_retries: max_retries,
+              error_class: e.class.name,
+              error_message: e.message,
+              retry_delay: delay,
+            )
+
+            sleep(delay * attempts) # Exponential backoff
+          end
+        end
+      end
+
+      # --- Provider Configuration ---
+
+      # Build custom RubyLLM context for base_url/timeout overrides
+      #
+      # @return [RubyLLM::Context] Configured context
+      def build_custom_context(provider:, base_url:, timeout:)
+        RubyLLM.context do |config|
+          # Set timeout
+          config.request_timeout = timeout
+
+          # Configure base_url if specified
+          if base_url
+            case provider.to_s
+            when "openai", "deepseek", "perplexity", "mistral", "openrouter"
+              config.openai_api_base = base_url
+              config.openai_api_key = ENV["OPENAI_API_KEY"] || "dummy-key-for-local"
+              config.openai_use_system_role = true
+            when "ollama"
+              config.ollama_api_base = base_url
+            when "gpustack"
+              config.gpustack_api_base = base_url
+              config.gpustack_api_key = ENV["GPUSTACK_API_KEY"] || "dummy-key"
+            else
+              raise ArgumentError,
+                "Provider '#{provider}' doesn't support custom base_url."
+            end
+          end
+        end
+      end
+
+      # Fetch real model info for accurate context tracking
+      #
+      # @param model_id [String] Model ID to lookup
+      def fetch_real_model_info(model_id)
+        @model_lookup_error = nil
+        @real_model_info = begin
+          RubyLLM.models.find(model_id)
+        rescue StandardError => e
+          suggestions = suggest_similar_models(model_id)
+          @model_lookup_error = {
+            model: model_id,
+            error_message: e.message,
+            suggestions: suggestions,
+          }
+          nil
+        end
+      end
+
+      # Determine which provider to use based on configuration
+      #
+      # @return [Symbol] The provider to use
+      def determine_provider(provider, base_url, api_version)
+        return provider unless base_url
+
+        case provider.to_s
+        when "openai", "deepseek", "perplexity", "mistral", "openrouter"
+          if api_version == "v1/responses"
+            :openai_with_responses
+          else
+            provider
+          end
+        else
+          provider
+        end
+      end
+
+      # Configure the custom provider after creation to use responses API
+      def configure_responses_api_provider(provider_instance)
+        return unless provider_instance.is_a?(SwarmSDK::Providers::OpenAIWithResponses)
+
+        provider_instance.use_responses_api = true
+        RubyLLM.logger.debug("SwarmSDK: Configured provider to use responses API")
+      end
+
+      # Configure LLM parameters with proper temperature normalization
+      #
+      # @param params [Hash] Parameter hash
+      # @return [self]
+      def configure_parameters(params)
+        return self if params.nil? || params.empty?
+
+        if params[:temperature]
+          with_temperature(params[:temperature])
+          params = params.except(:temperature)
+        end
+
+        with_params(**params) if params.any?
+
+        self
+      end
+
+      # Configure custom HTTP headers for LLM requests
+      #
+      # @param headers [Hash, nil] Custom HTTP headers
+      # @return [self]
+      def configure_headers(custom_headers)
+        return self if custom_headers.nil? || custom_headers.empty?
+
+        with_headers(**custom_headers)
+
+        self
+      end
+
+      # Suggest similar models when a model is not found
+      #
+      # @param query [String] Model name to search for
+      # @return [Array<RubyLLM::Model::Info>] Up to 3 similar models
+      def suggest_similar_models(query)
+        normalized_query = query.to_s.downcase.gsub(/[.\-_]/, "")
+
+        RubyLLM.models.all.select do |model_info|
+          normalized_id = model_info.id.downcase.gsub(/[.\-_]/, "")
+          normalized_id.include?(normalized_query) ||
+            model_info.name&.downcase&.gsub(/[.\-_]/, "")&.include?(normalized_query)
+        end.first(3)
+      rescue StandardError
+        []
+      end
+
+      # --- LLM Instrumentation ---
+
+      # Inject LLM instrumentation middleware for API request/response logging
       #
       # @return [void]
       def inject_llm_instrumentation
-        # Safety checks
         return unless @provider
 
         faraday_conn = @provider.connection&.connection
         return unless faraday_conn
 
-        # Check if middleware is already present to prevent duplicates
         return if @llm_instrumentation_injected
 
-        # Get provider name for logging
         provider_name = @provider.class.name.split("::").last.downcase
 
-        # Inject middleware at beginning of stack (position 0)
-        # This ensures we capture raw requests before any transformations
-        # Use fully qualified name to ensure Zeitwerk loads it
         faraday_conn.builder.insert(
           0,
           SwarmSDK::Agent::LLMInstrumentationMiddleware,
@@ -871,21 +1036,16 @@ module SwarmSDK
           provider_name: provider_name,
         )
 
-        # Mark as injected to prevent duplicates
         @llm_instrumentation_injected = true
 
         RubyLLM.logger.debug("SwarmSDK: Injected LLM instrumentation middleware for agent #{@agent_name}")
       rescue StandardError => e
-        # Don't fail initialization if instrumentation fails
         RubyLLM.logger.error("SwarmSDK: Failed to inject LLM instrumentation: #{e.message}")
       end
 
       # Handle LLM API request event
       #
-      # Emits llm_api_request event via LogStream with request details.
-      #
       # @param data [Hash] Request data from middleware
-      # @return [void]
       def handle_llm_api_request(data)
         return unless LogStream.emitter
 
@@ -902,10 +1062,7 @@ module SwarmSDK
 
       # Handle LLM API response event
       #
-      # Emits llm_api_response event via LogStream with response details.
-      #
       # @param data [Hash] Response data from middleware
-      # @return [void]
       def handle_llm_api_response(data)
         return unless LogStream.emitter
 
@@ -920,388 +1077,59 @@ module SwarmSDK
         RubyLLM.logger.error("SwarmSDK: Error emitting llm_api_response event: #{e.message}")
       end
 
-      # Call LLM with retry logic for transient failures
+      # Check if a tool call is a delegation tool
       #
-      # Retries up to 10 times with fixed 10-second delays for:
-      # - Network errors
-      # - Proxy failures
-      # - Transient API errors
+      # @param tool_call [RubyLLM::ToolCall] Tool call to check
+      # @return [Boolean] true if this is a delegation tool
+      def delegation_tool_call?(tool_call)
+        return false unless @agent_context
+
+        @agent_context.delegation_tool?(tool_call.name)
+      end
+
+      # --- Serialization Helpers ---
+
+      # Serialize a RubyLLM::Message to a plain hash
       #
-      # @yield Block that makes the LLM call
-      # @return [RubyLLM::Message] LLM response
-      # @raise [StandardError] If all retries exhausted
-      def call_llm_with_retry(max_retries: 10, delay: 10, &block)
-        attempts = 0
+      # @param message [RubyLLM::Message] Message to serialize
+      # @return [Hash] Serialized message data
+      def serialize_message(message)
+        data = message.to_h
 
-        loop do
-          attempts += 1
+        # Convert tool_calls to plain hashes (they're ToolCall objects)
+        if data[:tool_calls]
+          data[:tool_calls] = data[:tool_calls].transform_values(&:to_h)
+        end
 
-          begin
-            return yield
-          rescue StandardError => e
-            # Check if we should retry
-            if attempts >= max_retries
-              # Emit final failure log
-              LogStream.emit(
-                type: "llm_retry_exhausted",
-                agent: @agent_name,
-                swarm_id: @agent_context&.swarm_id,
-                parent_swarm_id: @agent_context&.parent_swarm_id,
-                model: @model&.id,
-                attempts: attempts,
-                error_class: e.class.name,
-                error_message: e.message,
-                error_backtrace: e.backtrace,
-              )
-              raise
-            end
+        # Handle Content objects
+        if data[:content].respond_to?(:to_h)
+          data[:content] = data[:content].to_h
+        end
 
-            # Emit retry attempt log
-            LogStream.emit(
-              type: "llm_retry_attempt",
-              agent: @agent_name,
-              swarm_id: @agent_context&.swarm_id,
-              parent_swarm_id: @agent_context&.parent_swarm_id,
-              model: @model&.id,
-              attempt: attempts,
-              max_retries: max_retries,
-              error_class: e.class.name,
-              error_message: e.message,
-              error_backtrace: e.backtrace,
-              retry_delay: delay,
+        data
+      end
+
+      # Deserialize a hash back to a RubyLLM::Message
+      #
+      # @param data [Hash] Serialized message data
+      # @return [RubyLLM::Message] Reconstructed message
+      def deserialize_message(data)
+        # Ensure we have symbol keys
+        data = data.transform_keys(&:to_sym)
+
+        # Convert tool_calls back to ToolCall objects
+        if data[:tool_calls]
+          data[:tool_calls] = data[:tool_calls].transform_values do |tc_data|
+            tc_data = tc_data.transform_keys(&:to_sym)
+            RubyLLM::ToolCall.new(
+              id: tc_data[:id],
+              name: tc_data[:name],
+              arguments: tc_data[:arguments] || {},
             )
-
-            # Wait before retry
-            sleep(delay)
-          end
-        end
-      end
-
-      # Build custom RubyLLM context for base_url/timeout overrides
-      #
-      # @param provider [String, Symbol] Provider name
-      # @param base_url [String, nil] Custom API base URL
-      # @param timeout [Integer] Request timeout in seconds
-      # @return [RubyLLM::Context] Configured context
-      def build_custom_context(provider:, base_url:, timeout:)
-        RubyLLM.context do |config|
-          # Set timeout for all providers
-          config.request_timeout = timeout
-
-          # Configure base_url if specified
-          next unless base_url
-
-          case provider.to_s
-          when "openai", "deepseek", "perplexity", "mistral", "openrouter"
-            config.openai_api_base = base_url
-            config.openai_api_key = ENV["OPENAI_API_KEY"] || "dummy-key-for-local"
-            # Use standard 'system' role instead of 'developer' for OpenAI-compatible proxies
-            # Most proxies don't support OpenAI's newer 'developer' role convention
-            config.openai_use_system_role = true
-          when "ollama"
-            config.ollama_api_base = base_url
-          when "gpustack"
-            config.gpustack_api_base = base_url
-            config.gpustack_api_key = ENV["GPUSTACK_API_KEY"] || "dummy-key"
-          else
-            raise ArgumentError,
-              "Provider '#{provider}' doesn't support custom base_url. " \
-                "Only OpenAI-compatible providers (openai, deepseek, perplexity, mistral, openrouter), " \
-                "ollama, and gpustack support custom endpoints."
-          end
-        end
-      end
-
-      # Fetch real model info for accurate context tracking
-      #
-      # This searches across ALL providers, so it works even when using proxies
-      # (e.g., Claude model through OpenAI-compatible proxy).
-      #
-      # @param model [String] Model ID to lookup
-      # @return [void]
-      def fetch_real_model_info(model)
-        @model_lookup_error = nil
-        @real_model_info = begin
-          RubyLLM.models.find(model) # Searches all providers when no provider specified
-        rescue StandardError => e
-          # Store warning info to emit later through LogStream
-          suggestions = suggest_similar_models(model)
-          @model_lookup_error = {
-            model: model,
-            error_message: e.message,
-            suggestions: suggestions,
-          }
-          nil
-        end
-      end
-
-      # Determine which provider to use based on configuration
-      #
-      # When using base_url with OpenAI-compatible providers and api_version is set to
-      # 'v1/responses', use our custom provider that supports the responses API endpoint.
-      #
-      # @param provider [Symbol, String] The requested provider
-      # @param base_url [String, nil] Custom base URL
-      # @param api_version [String, nil] API endpoint version
-      # @return [Symbol] The provider to use
-      def determine_provider(provider, base_url, api_version)
-        return provider unless base_url
-
-        # Use custom provider for OpenAI-compatible providers when api_version is v1/responses
-        # The custom provider supports both chat/completions and responses endpoints
-        case provider.to_s
-        when "openai", "deepseek", "perplexity", "mistral", "openrouter"
-          if api_version == "v1/responses"
-            :openai_with_responses
-          else
-            provider
-          end
-        else
-          provider
-        end
-      end
-
-      # Configure the custom provider after creation to use responses API
-      #
-      # RubyLLM doesn't support passing custom parameters to provider initialization,
-      # so we configure the provider after the chat is created.
-      def configure_responses_api_provider
-        return unless provider.is_a?(SwarmSDK::Providers::OpenAIWithResponses)
-
-        provider.use_responses_api = true
-        RubyLLM.logger.debug("SwarmSDK: Configured provider to use responses API")
-      end
-
-      # Configure LLM parameters with proper temperature normalization
-      #
-      # Note: RubyLLM only normalizes temperature (for models that require specific values
-      # like gpt-5-mini which requires temperature=1.0) when using with_temperature().
-      # The with_params() method is designed for sending unparsed parameters directly to
-      # the LLM without provider-specific normalization. Therefore, we extract temperature
-      # and call with_temperature() separately to ensure proper normalization.
-      #
-      # @param params [Hash] Parameter hash (may include temperature and other params)
-      # @return [self] Returns self for method chaining
-      def configure_parameters(params)
-        return self if params.nil? || params.empty?
-
-        # Extract temperature for separate handling
-        if params[:temperature]
-          with_temperature(params[:temperature])
-          params = params.except(:temperature)
-        end
-
-        # Apply remaining parameters
-        with_params(**params) if params.any?
-
-        self
-      end
-
-      # Configure custom HTTP headers for LLM requests
-      #
-      # @param headers [Hash, nil] Custom HTTP headers
-      # @return [self] Returns self for method chaining
-      def configure_headers(headers)
-        return self if headers.nil? || headers.empty?
-
-        with_headers(**headers)
-
-        self
-      end
-
-      # Acquire both global and local semaphores (if configured).
-      #
-      # Semaphores queue requests when limits are reached, ensuring graceful
-      # degradation instead of API errors.
-      #
-      # Order matters: acquire global first (broader scope), then local
-      def acquire_semaphores(&block)
-        if @global_semaphore && @local_semaphore
-          # Both limits: acquire global first, then local
-          @global_semaphore.acquire do
-            @local_semaphore.acquire(&block)
-          end
-        elsif @global_semaphore
-          # Only global limit
-          @global_semaphore.acquire(&block)
-        elsif @local_semaphore
-          # Only local limit
-          @local_semaphore.acquire(&block)
-        else
-          # No limits: execute immediately
-          yield
-        end
-      end
-
-      # Suggest similar models when a model is not found
-      #
-      # @param query [String] Model name to search for
-      # @return [Array<RubyLLM::Model::Info>] Up to 3 similar models
-      def suggest_similar_models(query)
-        normalized_query = query.to_s.downcase.gsub(/[.\-_]/, "")
-
-        RubyLLM.models.all.select do |model|
-          normalized_id = model.id.downcase.gsub(/[.\-_]/, "")
-          normalized_id.include?(normalized_query) ||
-            model.name&.downcase&.gsub(/[.\-_]/, "")&.include?(normalized_query)
-        end.first(3)
-      rescue StandardError
-        []
-      end
-
-      # Execute a tool with error handling for common issues
-      #
-      # Handles:
-      # - Missing required parameters (validated before calling)
-      # - Tool doesn't exist (nil.call)
-      # - Other ArgumentErrors (from tool execution)
-      #
-      # Returns helpful messages with system reminders showing available tools
-      # or required parameters.
-      #
-      # @param tool_call [RubyLLM::ToolCall] Tool call from LLM
-      # @return [String, Object] Tool result or error message
-      def execute_tool_with_error_handling(tool_call)
-        tool_name = tool_call.name
-        tool_instance = tools[tool_name.to_sym]
-
-        # Check if tool exists
-        unless tool_instance
-          return build_tool_not_found_error(tool_call)
-        end
-
-        # Validate required parameters BEFORE calling the tool
-        validation_error = validate_tool_parameters(tool_call, tool_instance)
-        return validation_error if validation_error
-
-        # Execute the tool
-        execute_tool(tool_call)
-      rescue ArgumentError => e
-        # This is an ArgumentError from INSIDE the tool execution (not missing params)
-        # Still try to provide helpful error message
-        build_argument_error(tool_call, e)
-      end
-
-      # Validate that all required tool parameters are present
-      #
-      # @param tool_call [RubyLLM::ToolCall] Tool call from LLM
-      # @param tool_instance [RubyLLM::Tool] Tool instance
-      # @return [String, nil] Error message if validation fails, nil if valid
-      def validate_tool_parameters(tool_call, tool_instance)
-        return unless tool_instance.respond_to?(:parameters)
-
-        # Get required parameters from tool definition
-        required_params = tool_instance.parameters.select { |_, param| param.required }
-
-        # Check which required parameters are missing from the tool call
-        # ToolCall stores arguments in tool_call.arguments (not .parameters)
-        missing_params = required_params.reject do |param_name, _param|
-          tool_call.arguments.key?(param_name.to_s) || tool_call.arguments.key?(param_name.to_sym)
-        end
-
-        return if missing_params.empty?
-
-        # Build missing parameter error
-        build_missing_parameters_error(tool_call, tool_instance, missing_params.keys)
-      end
-
-      # Build error message for missing required parameters
-      #
-      # @param tool_call [RubyLLM::ToolCall] Tool call that failed
-      # @param tool_instance [RubyLLM::Tool] Tool instance
-      # @param missing_param_names [Array<Symbol>] Names of missing parameters
-      # @return [String] Formatted error message
-      def build_missing_parameters_error(tool_call, tool_instance, missing_param_names)
-        tool_name = tool_call.name
-
-        # Get all parameter information
-        param_info = tool_instance.parameters.map do |_param_name, param_obj|
-          {
-            name: param_obj.name.to_s,
-            type: param_obj.type,
-            description: param_obj.description,
-            required: param_obj.required,
-          }
-        end
-
-        # Format missing parameter names nicely
-        missing_list = missing_param_names.map(&:to_s).join(", ")
-
-        error_message = "Error calling #{tool_name}: missing parameters: #{missing_list}\n\n"
-        error_message += build_parameter_reminder(tool_name, param_info)
-        error_message
-      end
-
-      # Build a helpful error message for ArgumentErrors from tool execution
-      #
-      # This handles ArgumentErrors that come from INSIDE the tool (not our validation).
-      # We still try to be helpful if it looks like a parameter issue.
-      #
-      # @param tool_call [RubyLLM::ToolCall] Tool call that failed
-      # @param error [ArgumentError] The ArgumentError raised
-      # @return [String] Formatted error message
-      def build_argument_error(tool_call, error)
-        tool_name = tool_call.name
-
-        # Just report the error - we already validated parameters, so this is an internal tool error
-        "Error calling #{tool_name}: #{error.message}"
-      end
-
-      # Build system reminder with parameter information
-      #
-      # @param tool_name [String] Tool name
-      # @param param_info [Array<Hash>] Parameter information
-      # @return [String] Formatted parameter reminder
-      def build_parameter_reminder(tool_name, param_info)
-        return "" if param_info.empty?
-
-        required_params = param_info.select { |p| p[:required] }
-        optional_params = param_info.reject { |p| p[:required] }
-
-        reminder = "<system-reminder>\n"
-        reminder += "CRITICAL: The #{tool_name} tool call failed due to missing parameters.\n\n"
-        reminder += "ALL REQUIRED PARAMETERS for #{tool_name}:\n\n"
-
-        required_params.each do |param|
-          reminder += "- #{param[:name]} (#{param[:type]}): #{param[:description]}\n"
-        end
-
-        if optional_params.any?
-          reminder += "\nOptional parameters:\n"
-          optional_params.each do |param|
-            reminder += "- #{param[:name]} (#{param[:type]}): #{param[:description]}\n"
           end
         end
 
-        reminder += "\nINSTRUCTIONS FOR RECOVERY:\n"
-        reminder += "1. Use the Think tool to reason about what value EACH required parameter should have\n"
-        reminder += "2. After thinking, retry the #{tool_name} tool call with ALL required parameters included\n"
-        reminder += "3. Do NOT skip any required parameters - the tool will fail again if you do\n"
-        reminder += "</system-reminder>"
-
-        reminder
-      end
-
-      # Build a helpful error message when a tool doesn't exist
-      #
-      # @param tool_call [RubyLLM::ToolCall] Tool call that failed
-      # @return [String] Formatted error message with available tools list
-      def build_tool_not_found_error(tool_call)
-        tool_name = tool_call.name
-        available_tools = tools.keys.map(&:to_s).sort
-
-        error_message = "Error: Tool '#{tool_name}' is not available.\n\n"
-        error_message += "You attempted to use '#{tool_name}', but this tool is not in your current toolset.\n\n"
-
-        error_message += "<system-reminder>\n"
-        error_message += "Your available tools are:\n"
-        available_tools.each do |name|
-          error_message += "  - #{name}\n"
-        end
-        error_message += "\nDo NOT attempt to use tools that are not in this list.\n"
-        error_message += "</system-reminder>"
-
-        error_message
+        RubyLLM::Message.new(**data)
       end
     end
   end

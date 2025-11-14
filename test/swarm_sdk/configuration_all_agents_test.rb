@@ -56,11 +56,11 @@ module SwarmSDK
         agent = swarm.agent(:developer)
 
         # Should have: defaults + all_agents.tools + agent.tools
-        assert(agent.tools.key?(:Read), "Should have default Read")
-        assert(agent.tools.key?(:Grep), "Should have default Grep")
-        assert(agent.tools.key?(:Write), "Should have all_agents Write")
-        assert(agent.tools.key?(:Edit), "Should have all_agents Edit")
-        assert(agent.tools.key?(:Bash), "Should have agent Bash")
+        assert(agent.has_tool?(:Read), "Should have default Read")
+        assert(agent.has_tool?(:Grep), "Should have default Grep")
+        assert(agent.has_tool?(:Write), "Should have all_agents Write")
+        assert(agent.has_tool?(:Edit), "Should have all_agents Edit")
+        assert(agent.has_tool?(:Bash), "Should have agent Bash")
       end
     end
 
@@ -92,8 +92,8 @@ module SwarmSDK
         assert(agent, "Agent should be created")
 
         # Verify agent has custom tools
-        assert(agent.tools.key?(:Write), "Should have all_agents Write")
-        assert(agent.tools.key?(:Bash), "Should have agent Bash")
+        assert(agent.has_tool?(:Write), "Should have all_agents Write")
+        assert(agent.has_tool?(:Bash), "Should have agent Bash")
       end
     end
 
@@ -133,10 +133,10 @@ module SwarmSDK
         # Verify agents created with custom tools
         assert(developer, "Developer should be created")
         assert(minimal, "Minimal should be created")
-        assert(developer.tools.key?(:Write), "Should have all_agents Write")
-        assert(developer.tools.key?(:Bash), "Should have agent Bash")
-        assert(minimal.tools.key?(:Write), "Should have all_agents Write")
-        assert(minimal.tools.key?(:Edit), "Should have agent Edit")
+        assert(developer.has_tool?(:Write), "Should have all_agents Write")
+        assert(developer.has_tool?(:Bash), "Should have agent Bash")
+        assert(minimal.has_tool?(:Write), "Should have all_agents Write")
+        assert(minimal.has_tool?(:Edit), "Should have agent Edit")
 
         # Full disable_default_tools behavior tested in default_tools_test.rb
       end
@@ -226,11 +226,11 @@ module SwarmSDK
         developer = swarm.agent(:developer)
 
         # Should have all_agents tools + agent tools + defaults
-        assert(developer.tools.key?(:Write), "Should have all_agents Write")
-        assert(developer.tools.key?(:Edit), "Should have all_agents Edit")
-        assert(developer.tools.key?(:Bash), "Should have agent Bash")
-        assert(developer.tools.key?(:Glob), "Should have agent Glob")
-        assert(developer.tools.key?(:Read), "Should have default Read")
+        assert(developer.has_tool?(:Write), "Should have all_agents Write")
+        assert(developer.has_tool?(:Edit), "Should have all_agents Edit")
+        assert(developer.has_tool?(:Bash), "Should have agent Bash")
+        assert(developer.has_tool?(:Glob), "Should have agent Glob")
+        assert(developer.has_tool?(:Read), "Should have default Read")
       end
     end
 
@@ -314,7 +314,7 @@ module SwarmSDK
 
         # Verify agent was created with Read tool
         assert(developer, "Agent should be created")
-        assert(developer.tools.key?(:Read), "Should have default Read tool")
+        assert(developer.has_tool?(:Read), "Should have default Read tool")
 
         # Permissions behavior (deny/allow) is comprehensively tested in permissions_test.rb
         # This YAML test just verifies the configuration translates without errors

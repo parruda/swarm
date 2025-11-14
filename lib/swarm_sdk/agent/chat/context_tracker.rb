@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat < RubyLLM::Chat
+    class Chat
       # Manages context tracking, delegation tracking, and logging callbacks
       #
       # Responsibilities:
@@ -110,7 +110,7 @@ module SwarmSDK
             LogStream.emit(
               type: "context_limit_warning",
               agent: @agent_context.name,
-              model: @chat.model.id,
+              model: @chat.model_id,
               threshold: "#{threshold}%",
               current_usage: "#{current_percentage}%",
               tokens_used: @chat.cumulative_total_tokens,
@@ -319,7 +319,7 @@ module SwarmSDK
         tokens_before = @chat.cumulative_total_tokens
 
         # Get compressed messages from ContextManager
-        compressed = @chat.context_manager.auto_compress_on_threshold(@chat.messages, keep_recent: 10)
+        compressed = @chat.context_manager.auto_compress_on_threshold(@chat.internal_messages, keep_recent: 10)
 
         # Count how many messages were actually compressed
         messages_compressed = compressed.count do |msg|
@@ -327,14 +327,14 @@ module SwarmSDK
         end
 
         # Replace messages array with compressed version
-        @chat.messages.clear
-        compressed.each { |msg| @chat.messages << msg }
+        @chat.internal_messages.clear
+        compressed.each { |msg| @chat.internal_messages << msg }
 
         # Log compression event
         LogStream.emit(
           type: "context_compression",
           agent: @agent_context.name,
-          total_messages: @chat.messages.size,
+          total_messages: @chat.message_count,
           messages_compressed: messages_compressed,
           tokens_before: tokens_before,
           current_usage: "#{@chat.context_usage_percentage}%",

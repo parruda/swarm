@@ -58,7 +58,7 @@ module SwarmSDK
     # @return [ContextCompactor::Metrics] Compression metrics
     def compact
       start_time = Time.now
-      original_messages = @chat.messages.dup
+      original_messages = @chat.internal_messages.dup
 
       # Emit compression_started event
       LogStream.emit(
@@ -329,11 +329,11 @@ module SwarmSDK
     # @return [void]
     def replace_messages(new_messages)
       # Clear existing messages
-      @chat.messages.clear
+      @chat.internal_messages.clear
 
       # Add new messages
       new_messages.each do |msg|
-        @chat.messages << msg
+        @chat.internal_messages << msg
       end
     end
   end
