@@ -189,7 +189,7 @@ swarm:
 
     ruby_llm_expert:
       description: "Expert in RubyLLM gem integration and LLM interaction patterns"
-      directory: ~/src/github.com/crmne/ruby_llm
+      directory: ~/src/github.com/parruda/ruby_llm
       model: ${ANTHROPIC_MODEL}
       vibe: true
       prompt: |
