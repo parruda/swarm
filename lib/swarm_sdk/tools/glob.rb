@@ -9,6 +9,13 @@ module SwarmSDK
     class Glob < RubyLLM::Tool
       include PathResolver
 
+      # Factory pattern: declare what parameters this tool needs for instantiation
+      class << self
+        def creation_requirements
+          [:directory]
+        end
+      end
+
       def initialize(directory:)
         super()
         @directory = File.expand_path(directory)
