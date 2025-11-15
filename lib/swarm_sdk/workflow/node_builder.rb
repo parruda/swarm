@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module SwarmSDK
-  module Node
-    # Builder provides DSL for configuring nodes (mini-swarms within a workflow)
+  class Workflow
+    # NodeBuilder provides DSL for configuring individual nodes within a workflow
     #
     # A node represents a stage in a multi-step workflow where a specific set
     # of agents collaborate. Each node creates an independent swarm execution.
@@ -20,7 +20,7 @@ module SwarmSDK
     #
     #     depends_on :planning
     #   end
-    class Builder
+    class NodeBuilder
       attr_reader :name,
         :agent_configs,
         :dependencies,

@@ -102,7 +102,7 @@ module SwarmSDK
       @data[:version] || @data["version"]
     end
 
-    # Get snapshot type (swarm or node_orchestrator)
+    # Get snapshot type (swarm or workflow)
     #
     # @return [String] Snapshot type
     def type
@@ -139,18 +139,23 @@ module SwarmSDK
       delegations ? delegations.keys.map(&:to_s) : []
     end
 
-    # Check if snapshot is for a swarm (vs node_orchestrator)
+    # Check if snapshot is for a swarm (vs workflow)
     #
     # @return [Boolean] true if swarm snapshot
     def swarm?
       type == "swarm"
     end
 
-    # Check if snapshot is for a node orchestrator
+    # Check if snapshot is for a workflow
     #
-    # @return [Boolean] true if node orchestrator snapshot
+    # @return [Boolean] true if workflow snapshot
+    def workflow?
+      type == "workflow"
+    end
+
+    # Backward compatibility alias (for old test code)
     def node_orchestrator?
-      type == "node_orchestrator"
+      workflow?
     end
   end
 end

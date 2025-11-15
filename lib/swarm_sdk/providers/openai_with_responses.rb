@@ -34,9 +34,8 @@ module SwarmSDK
       attr_accessor :use_responses_api
       attr_writer :agent_name
 
-      # OpenAI Responses API expires response IDs after inactivity
-      # Conservative estimate: 5 minutes (300 seconds)
-      RESPONSE_ID_TTL = 300
+      # Backward compatibility alias - use Defaults module for new code
+      RESPONSE_ID_TTL = Defaults::Timeouts::RESPONSES_API_TTL_SECONDS
 
       # Initialize the provider
       #

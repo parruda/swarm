@@ -69,11 +69,11 @@ module SwarmSDK
     # @return [Hash] StateSnapshot hash
     def reconstruct
       {
-        version: "1.0.0",
+        version: "2.0.0",
         type: "swarm",
         snapshot_at: @events.last&.fetch(:timestamp, Time.now.utc.iso8601),
         swarm_sdk_version: SwarmSDK::VERSION,
-        swarm: reconstruct_swarm_metadata,
+        metadata: reconstruct_swarm_metadata,
         agents: reconstruct_all_agents,
         delegation_instances: reconstruct_all_delegations,
         scratchpad: reconstruct_scratchpad,

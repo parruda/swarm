@@ -183,7 +183,7 @@ module SwarmCLI
 
       # Verify delegation tools are shown
       assert_match(/Delegation Tools:/, output_text)
-      assert_match(/DelegateTaskToAgent2/, output_text)
+      assert_match(/WorkWithAgent2/, output_text)
     end
   end
 end

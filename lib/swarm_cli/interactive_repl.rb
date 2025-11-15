@@ -575,7 +575,7 @@ module SwarmCLI
         case tool_name
         when /^Memory/, "LoadSkill"
           memory_tools << tool_name
-        when /^DelegateTaskTo/
+        when /^WorkWith/
           delegation_tools << tool_name
         when /^mcp__/
           mcp_tools << tool_name

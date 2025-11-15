@@ -47,7 +47,8 @@ module SwarmSDK
     #   )
     #   # => Result (continue or halt based on exit code)
     class ShellExecutor
-      DEFAULT_TIMEOUT = 60
+      # Backward compatibility alias - use Defaults module for new code
+      DEFAULT_TIMEOUT = Defaults::Timeouts::HOOK_SHELL_SECONDS
 
       class << self
         # Execute a shell command hook

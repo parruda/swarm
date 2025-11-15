@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat < RubyLLM::Chat
+    module ChatHelpers
       # Handles injection of system reminders at strategic points in the conversation
       #
       # Responsibilities:
@@ -22,8 +22,8 @@ module SwarmSDK
           <system-reminder>The TodoWrite tool hasn't been used recently. If you're working on tasks that would benefit from tracking progress, consider using the TodoWrite tool to track progress. Also consider cleaning up the todo list if has become stale and no longer matches what you are working on. Only use it if it's relevant to the current work. This is just a gentle reminder - ignore if not applicable.</system-reminder>
         REMINDER
 
-        # Number of messages between TodoWrite reminders
-        TODOWRITE_REMINDER_INTERVAL = 8
+        # Backward compatibility alias - use Defaults module for new code
+        TODOWRITE_REMINDER_INTERVAL = Defaults::Context::TODOWRITE_REMINDER_INTERVAL
 
         class << self
           # Check if this is the first user message in the conversation
@@ -31,7 +31,7 @@ module SwarmSDK
           # @param chat [Agent::Chat] The chat instance
           # @return [Boolean] true if no user messages exist yet
           def first_message?(chat)
-            chat.messages.none? { |msg| msg.role == :user }
+            !chat.has_user_message?
           end
 
           # Inject first message reminders
@@ -55,7 +55,7 @@ module SwarmSDK
             ]
 
             # Only include todo list reminder if agent has TodoWrite tool
-            parts << AFTER_FIRST_MESSAGE_REMINDER if chat.tools.key?("TodoWrite")
+            parts << AFTER_FIRST_MESSAGE_REMINDER if chat.has_tool?("TodoWrite")
 
             full_content = parts.join("\n\n")
 
@@ -68,7 +68,7 @@ module SwarmSDK
 
             # Track reminders to embed in this message when sending to LLM
             reminders.each do |reminder|
-              chat.context_manager.add_ephemeral_reminder(reminder, messages_array: chat.messages)
+              chat.add_ephemeral_reminder(reminder)
             end
           end
 
@@ -77,7 +77,7 @@ module SwarmSDK
           # @param chat [Agent::Chat] The chat instance
           # @return [String] System reminder with tool list
           def build_toolset_reminder(chat)
-            tools_list = chat.tools.values.map(&:name).sort
+            tools_list = chat.tool_names
 
             reminder = "<system-reminder>\n"
             reminder += "Tools available: #{tools_list.join(", ")}\n\n"
@@ -98,23 +98,23 @@ module SwarmSDK
           # @return [Boolean] true if reminder should be injected
           def should_inject_todowrite_reminder?(chat, last_todowrite_index)
             # Need at least a few messages before reminding
-            return false if chat.messages.count < 5
+            return false if chat.message_count < 5
 
             # Find the last message that contains TodoWrite tool usage
-            last_todo_index = chat.messages.rindex do |msg|
+            last_todo_index = chat.find_last_message_index do |msg|
               msg.role == :tool && msg.content.to_s.include?("TodoWrite")
             end
 
             # Check if enough messages have passed since last TodoWrite
             if last_todo_index.nil? && last_todowrite_index.nil?
               # Never used TodoWrite - check if we've exceeded interval
-              chat.messages.count >= TODOWRITE_REMINDER_INTERVAL
+              chat.message_count >= TODOWRITE_REMINDER_INTERVAL
             elsif last_todo_index
               # Recently used - don't remind
               false
             elsif last_todowrite_index
               # Used before - check if interval has passed
-              chat.messages.count - last_todowrite_index >= TODOWRITE_REMINDER_INTERVAL
+              chat.message_count - last_todowrite_index >= TODOWRITE_REMINDER_INTERVAL
             else
               false
             end
@@ -125,7 +125,7 @@ module SwarmSDK
           # @param chat [Agent::Chat] The chat instance
           # @return [Integer, nil] Index of last TodoWrite usage, or nil
           def find_last_todowrite_index(chat)
-            chat.messages.rindex do |msg|
+            chat.find_last_message_index do |msg|
               msg.role == :tool && msg.content.to_s.include?("TodoWrite")
             end
           end

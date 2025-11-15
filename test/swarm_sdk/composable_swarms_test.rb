@@ -146,7 +146,7 @@ module SwarmSDK
       )
 
       # Execute should detect circular dependency
-      result = tool.execute(task: "Do something")
+      result = tool.execute(message: "Do something")
 
       assert_match(/Circular delegation detected/, result)
       assert_match(/agent_a -> agent_b -> agent_a/, result)

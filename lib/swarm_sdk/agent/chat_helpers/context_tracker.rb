@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat < RubyLLM::Chat
+    module ChatHelpers
       # Manages context tracking, delegation tracking, and logging callbacks
       #
       # Responsibilities:
@@ -63,14 +63,14 @@ module SwarmSDK
 
         # Extract agent name from delegation tool name
         #
-        # Converts "DelegateTaskTo[AgentName]" to "agent_name"
-        # Example: "DelegateTaskToWorker" -> "worker"
+        # Converts "#{Tools::Delegate::TOOL_NAME_PREFIX}[AgentName]" to "agent_name"
+        # Example: "WorkWithWorker" -> "worker"
         #
         # @param tool_name [String] Delegation tool name
         # @return [String] Agent name
         def extract_delegate_agent_name(tool_name)
-          # Remove "DelegateTaskTo" prefix and lowercase first letter
-          agent_name = tool_name.to_s.sub(/^DelegateTaskTo/, "")
+          # Remove tool name prefix and lowercase first letter
+          agent_name = tool_name.to_s.sub(/^#{Tools::Delegate::TOOL_NAME_PREFIX}/, "")
           # Convert from PascalCase to lowercase (e.g., "Worker" -> "worker", "BackendDev" -> "backendDev")
           agent_name[0] = agent_name[0].downcase unless agent_name.empty?
           agent_name
@@ -110,7 +110,7 @@ module SwarmSDK
             LogStream.emit(
               type: "context_limit_warning",
               agent: @agent_context.name,
-              model: @chat.model.id,
+              model: @chat.model_id,
               threshold: "#{threshold}%",
               current_usage: "#{current_percentage}%",
               tokens_used: @chat.cumulative_total_tokens,
@@ -326,15 +326,14 @@ module SwarmSDK
           msg.content.to_s.include?("[truncated for context management]")
         end
 
-        # Replace messages array with compressed version
-        @chat.messages.clear
-        compressed.each { |msg| @chat.messages << msg }
+        # Replace messages using proper abstraction
+        @chat.replace_messages(compressed)
 
         # Log compression event
         LogStream.emit(
           type: "context_compression",
           agent: @agent_context.name,
-          total_messages: @chat.messages.size,
+          total_messages: @chat.message_count,
           messages_compressed: messages_compressed,
           tokens_before: tokens_before,
           current_usage: "#{@chat.context_usage_percentage}%",

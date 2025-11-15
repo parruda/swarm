@@ -19,7 +19,7 @@ module SwarmSDK
       assert(hook.matches?("Bash"), "Should match Bash")
       assert(hook.matches?("Glob"), "Should match Glob")
       assert(hook.matches?("Edit"), "Should match Edit")
-      assert(hook.matches?("DelegateTaskToBackend"), "Should match delegation tools")
+      assert(hook.matches?("WorkWithBackend"), "Should match delegation tools")
       assert(hook.matches?("AnyToolName"), "Should match any tool name")
     end
 
@@ -61,15 +61,15 @@ module SwarmSDK
       # Hook with regex pattern
       hook = Hooks::Definition.new(
         event: :pre_tool_use,
-        matcher: "Delegate.*",
+        matcher: "WorkWith.*",
         priority: 0,
         proc: ->(_ctx) {},
       )
 
       # Should match delegation tools
-      assert(hook.matches?("DelegateTaskToBackend"), "Should match DelegateTaskToBackend")
-      assert(hook.matches?("DelegateTaskToFrontend"), "Should match DelegateTaskToFrontend")
-      assert(hook.matches?("DelegateAnything"), "Should match DelegateAnything")
+      assert(hook.matches?("WorkWithBackend"), "Should match WorkWithBackend")
+      assert(hook.matches?("WorkWithFrontend"), "Should match WorkWithFrontend")
+      assert(hook.matches?("WorkWithAnything"), "Should match WorkWithAnything")
 
       # Should not match non-delegation tools
       refute(hook.matches?("Read"), "Should not match Read")

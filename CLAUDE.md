@@ -4,15 +4,59 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Claude Swarm is a Ruby gem that orchestrates multiple Claude Code instances as a collaborative AI development team. It enables running AI agents with specialized roles, tools, and directory contexts, communicating via MCP (Model Context Protocol).
+This repository contains three integrated Ruby gems that work together to create collaborative AI agent systems:
 
-SwarmSDK is a complete reimagining of Claude Swarm that decouples from Claude Code and runs everything in a single process using RubyLLM for all LLM interactions. It is being developed in `lib/swarm_sdk`, and using the gemspec swarm-sdk.gemspec.
+- **SwarmSDK** (`lib/swarm_sdk/`) - Core SDK for building multi-agent AI systems using RubyLLM
+- **SwarmMemory** (`lib/swarm_memory/`) - Persistent memory system with semantic search for agents
+- **SwarmCLI** (`lib/swarm_cli/`) - Modern command-line interface using TTY toolkit components
+
+### SwarmSDK
+
+SwarmSDK is a single-process, lightweight framework for building collaborative AI agent systems. Key features:
+
+- **Single Process**: All agents run in the same Ruby process using RubyLLM
+- **Agent Delegation**: Agents can delegate tasks to specialized agents
+- **Tool System**: Rich set of built-in tools (Read, Write, Edit, Bash, etc.)
+- **Ruby DSL**: Clean, intuitive API for defining agent swarms
+- **Event System**: Comprehensive event emission for monitoring and debugging
+- **State Management**: Snapshot/restore for session persistence
+- **Async Support**: Built on Async gem for efficient concurrent execution
+- **MCP Integration**: Connect to external MCP servers via RubyLLM::MCP
+
+### SwarmMemory
+
+SwarmMemory provides hierarchical persistent memory with semantic search capabilities:
+
+- **Semantic Search**: Fast ONNX-based embeddings using Informers gem
+- **Memory Tools**: MemoryWrite, MemoryRead, MemoryEdit, MemoryDelete, MemoryGrep, MemoryGlob
+- **SDK Integration**: Seamlessly integrates with SwarmSDK through plugin system
+- **Frontmatter Support**: Extract metadata from memory entries
+- **Storage Abstraction**: Pluggable storage backends
+- **Defragmentation**: Optimize memory storage over time
+
+### SwarmCLI
+
+SwarmCLI provides a modern, user-friendly command-line interface:
+
+- **Dual-Mode Support**: Interactive REPL and non-interactive automation
+- **TTY Toolkit**: Rich terminal UI with Pastel styling, TTY::Spinner, TTY::Markdown
+- **JSON Logging**: Structured logs for automation and scripting
+- **Reline Integration**: Advanced line editing with history and completion
+- **Configuration Management**: YAML-based swarm definitions
+- **Memory Commands**: Full memory system integration (if swarm_memory installed)
 
 ## Development Commands
 
 ### Testing
+NEVER RUN ALL TESTS WITH `bundle exec rake test`. Run tests for each component separately.
+
+Each component has its own test suite:
+
 ```bash
-bundle exec rake test             # Run the Minitest test suite
+# Run specific component tests
+bundle exec rake swarm_sdk:test      # SwarmSDK tests
+bundle exec rake swarm_memory:test   # SwarmMemory tests
+bundle exec rake swarm_cli:test      # SwarmCLI tests
 ```
 
 **Important**: Tests should not generate any output to stdout or stderr. When writing tests:
@@ -33,196 +77,166 @@ end
 ```
 
 ### Linting
+
 ```bash
 bundle exec rubocop -A       # Run RuboCop linter to auto fix problems
 ```
 
-### Development Console
-```bash
-bin/console           # Start IRB session with gem loaded
-```
-
-### Build & Release
-```bash
-bundle exec rake install    # Install gem locally
-bundle exec rake release    # Release gem to RubyGems.org
-```
-
-### Default Task
-```bash
-rake                  # Runs both tests and RuboCop
-```
-
-## Git Worktree Support
-
-Claude Swarm supports launching instances in Git worktrees to isolate changes:
-
-### CLI Usage
-```bash
-# Create worktrees with custom name
-claude-swarm --worktree feature-branch
-
-# Create worktrees with auto-generated name (worktree-SESSION_ID)
-claude-swarm --worktree
-
-# Short form
-claude-swarm -w feature-x
-```
-
-### Per-Instance Configuration
-Instances can have individual worktree settings that override CLI behavior:
-
-```yaml
-instances:
-  main:
-    worktree: true         # Use shared worktree name (from CLI or auto-generated)
-  testing:
-    worktree: false        # Don't use worktree for this instance
-  feature:
-    worktree: "feature-x"  # Use specific worktree name
-  default:
-    # No worktree field - follows CLI behavior
-```
-
-### Worktree Behavior
-- Worktrees are created in external directory: `~/.claude-swarm/worktrees/[session_id]/[repo_name-hash]/[worktree_name]`
-- This ensures proper isolation from the main repository and avoids conflicts with bundler and other tools
-- Each unique Git repository gets its own worktree with the same name
-- All instance directories are mapped to their worktree equivalents
-- Worktrees are automatically cleaned up when the swarm exits
-- Session metadata tracks worktree information for restoration
-- Non-Git directories are used as-is without creating worktrees
-- Existing worktrees with the same name are reused
-- The `claude-swarm clean` command removes orphaned worktrees
-
-## Claude Code SDK Integration
-
-Claude Swarm uses the Claude Code SDK (`claude-code-sdk-ruby`) for all Claude instances. This provides:
-- Better performance and reliability
-- Structured message handling
-- Improved error recovery
-- Direct MCP server configuration support (stdio, sse, http)
-
-The SDK executor handles all three MCP server types and properly converts MCP JSON configurations to SDK format.
-
 ## Architecture
 
-The gem is fully implemented with the following components:
+### SwarmSDK Architecture (`lib/swarm_sdk/`)
 
-### Core Classes
+**Core Components:**
 
-- **ClaudeSwarm::CLI** (`lib/claude_swarm/cli.rb`): Thor-based CLI that handles command parsing and orchestration
-- **ClaudeSwarm::Configuration** (`lib/claude_swarm/configuration.rb`): YAML parser and validator for swarm configurations
-- **ClaudeSwarm::McpGenerator** (`lib/claude_swarm/mcp_generator.rb`): Generates MCP JSON configurations for each instance
-- **ClaudeSwarm::Orchestrator** (`lib/claude_swarm/orchestrator.rb`): Launches the main Claude instance with proper configuration
-- **ClaudeSwarm::WorktreeManager** (`lib/claude_swarm/worktree_manager.rb`): Manages Git worktrees for isolated development
+- **Swarm** - Main orchestrator managing multiple agents with shared rate limiting
+- **Agent::Definition** - Agent configuration and validation
+- **Agent::Chat** - RubyLLM chat wrapper with tool execution and delegation
+- **AgentInitializer** - Complex 5-pass agent setup with tool and MCP configuration
+- **ToolConfigurator** - Tool creation, permissions, and delegation tool generation
+- **McpConfigurator** - MCP client management and configuration
+- **NodeOrchestrator** - Multi-node workflow execution with dependencies
 
-### Key Features
+**Key Subsystems:**
 
-1. **YAML Configuration**: Define swarms with instances, connections, tools, and MCP servers
-2. **Inter-Instance Communication**: Instances connect via MCP using `claude mcp serve` with `-p` flag
-3. **Tool Restrictions**: Support for tool restrictions using Claude's native pattern (connections are available as `mcp__instance_name`)
-4. **Multiple MCP Types**: Supports both stdio and SSE MCP server types
-5. **Automatic MCP Generation**: Creates `.claude-swarm/` directory with MCP configs
-6. **Custom System Prompts**: Each instance can have a custom prompt via `--append-system-prompt`
-7. **Git Worktree Support**: Run instances in isolated Git worktrees with per-instance configuration
+- **Events**: LogStream + LogCollector for comprehensive event emission
+- **Hooks**: Pre/post tool execution, swarm lifecycle hooks
+- **State**: Snapshot/restore for session persistence
+- **Tools**: 25+ built-in tools (Read, Write, Edit, Bash, Grep, Glob, etc.)
+- **Plugins**: Extensible plugin system (SwarmMemory integrates via plugins)
 
-### How It Works
+**User-Facing APIs:**
 
-1. User creates a `claude-swarm.yml` file defining the swarm topology
-2. Running `claude-swarm` parses the configuration and validates it
-3. MCP configuration files are generated for each instance in a session directory
-4. Settings files (with hooks) are generated for each instance if hooks are configured
-5. The main instance is launched with `exec`, replacing the current process
-6. Connected instances are available as MCP servers to the main instance
-7. When an instance has connections, those connections are automatically added to its allowed tools as `mcp__<connection_name>`
+```ruby
+# Ruby DSL (Recommended)
+swarm = SwarmSDK.build do
+  name "Development Team"
+  lead :backend
 
-### Configuration Example
+  agent :backend do
+    model "claude-sonnet-4"
+    description "Backend developer"
+    prompt "You build APIs and databases"
+    tools :Read, :Edit, :Bash
+    delegates_to :database
+  end
+end
 
-```yaml
-version: 1
-swarm:
-  name: "Dev Team"
-  main: lead
-  instances:
-    lead:
-      description: "Lead developer coordinating the team"
-      directory: .
-      model: opus
-      connections: [frontend, backend]
-      prompt: "You are the lead developer coordinating the team"
-      tools: [Read, Edit, Bash]
-      worktree: true  # Optional: use worktree for this instance
-    frontend:
-      description: "Frontend developer specializing in React"
-      directory: ./frontend
-      model: sonnet
-      prompt: "You specialize in frontend development with React"
-      tools: [Edit, Write, Bash]
-      worktree: false  # Optional: disable worktree for this instance
+result = swarm.execute("Build authentication system")
+
+# YAML String API
+yaml = File.read("swarm.yml")
+swarm = SwarmSDK.load(yaml, base_dir: "/path/to/project")
+
+# YAML File API (Convenience)
+swarm = SwarmSDK.load_file("swarm.yml")
 ```
 
-### Hooks Support
+### SwarmMemory Architecture (`lib/swarm_memory/`)
 
-Claude Swarm supports configuring [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) for each instance. This allows you to run custom scripts before/after tools, on prompt submission, and more.
+**Core Components:**
 
-#### Configuration Example with Hooks
+- **Core::Storage** - Hierarchical file-based storage with frontmatter
+- **Core::Index** - FAISS-based semantic search index
+- **Core::Embedder** - ONNX embeddings via Informers gem
+- **Tools::Memory*** - Memory manipulation tools (Write, Read, Edit, Delete, etc.)
+- **Integration::SDKPlugin** - SwarmSDK plugin for seamless integration
 
-```yaml
-version: 1
-swarm:
-  name: "Dev Team"
-  main: lead
-  instances:
-    lead:
-      description: "Lead developer"
-      directory: .
-      model: opus
-      # Hooks configuration follows Claude Code's format exactly
-      hooks:
-        PreToolUse:
-          - matcher: "Write|Edit"
-            hooks:
-              - type: "command"
-                command: "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-code.py"
-                timeout: 10
-        PostToolUse:
-          - matcher: "Bash"
-            hooks:
-              - type: "command"
-                command: "echo 'Command executed by lead' >> /tmp/lead.log"
-        UserPromptSubmit:
-          - hooks:
-              - type: "command"
-                command: "$CLAUDE_PROJECT_DIR/.claude/hooks/add-context.py"
-    frontend:
-      description: "Frontend developer"
-      directory: ./frontend
-      hooks:
-        PreToolUse:
-          - matcher: "Write"
-            hooks:
-              - type: "command"
-                command: "npm run lint"
+**Memory Tools:**
+
+- **MemoryWrite** - Create/update memory entries with semantic indexing
+- **MemoryRead** - Retrieve memory entries with optional semantic search
+- **MemoryEdit** - Edit specific memory entries
+- **MemoryMultiEdit** - Batch edit multiple entries
+- **MemoryDelete** - Remove memory entries
+- **MemoryGrep** - Search memory content with regex
+- **MemoryGlob** - Find memory entries by pattern
+- **MemoryDefrag** - Optimize storage and rebuild indices
+
+**Integration:**
+
+```ruby
+# Enable memory for an agent
+SwarmSDK.build do
+  agent :researcher do
+    model "claude-sonnet-4"
+    memory do
+      directory("tmp/memory/corpus")
+      mode(:researcher)
+    end
+  end
+end
 ```
 
-The hooks configuration is passed directly to Claude Code via a generated settings.json file in the session directory. Each instance gets its own settings file with its specific hooks.
+### SwarmCLI Architecture (`lib/swarm_cli/`)
 
-## Testing
+**Core Components:**
 
-The gem includes comprehensive tests covering:
-- Configuration parsing and validation
-- MCP generation logic with connections
-- Error handling scenarios
-- CLI command functionality
-- Session restoration
-- Vibe mode behavior
-- Worktree management and per-instance configuration
+- **Commands::Run** - Main command for executing swarms
+- **InteractiveREPL** - Interactive mode with Reline
+- **UI::EventRenderer** - Event formatting and display
+- **UI::Formatters** - TTY-based output formatting
+- **ConfigLoader** - YAML configuration parsing
 
-## Dependencies
+**Key Features:**
 
-- **thor** (~> 1.3): Command-line interface framework
-- **yaml**: Built-in Ruby YAML parser (no explicit dependency needed)
+- **Non-Interactive Mode**: JSON structured logs for automation
+- **Interactive Mode**: Rich terminal UI with colors, spinners, trees
+- **Event Streaming**: Real-time display of agent actions
+- **Configuration**: YAML-based swarm definitions
+- **Reline Integration**: Advanced input editing with history
+
+## Code Separation
+
+**CRITICAL**: The three components are completely separate:
+
+- **SwarmSDK**: Core SDK functionality in `lib/swarm_sdk/` and `lib/swarm_sdk.rb`
+- **SwarmMemory**: Memory system in `lib/swarm_memory/` and `lib/swarm_memory.rb`
+- **SwarmCLI**: CLI interface in `lib/swarm_cli/` and `lib/swarm_cli.rb`
+
+**NEVER mix SDK, Memory, and CLI code** - they are separate gems with distinct concerns:
+- SDK provides the programmatic API
+- Memory provides persistent storage with semantic search
+- CLI provides the command-line interface
+
+## Testing Guidelines
+
+### Component-Specific Tests
+
+- **SwarmSDK**: `test/swarm_sdk/**/*_test.rb`
+- **SwarmMemory**: `test/swarm_memory/**/*_test.rb`
+- **SwarmCLI**: `test/swarm_cli/**/*_test.rb`
+
+### Best Practices
+
+1. **Isolation**: Each component's tests should not depend on others
+2. **Mocking**: Mock external dependencies (LLM API calls, file system, etc.)
+3. **Cleanup**: Always clean up test artifacts (temp files, directories)
+4. **No Output**: Tests should be silent (capture stdout/stderr)
+5. **Fast**: Unit tests should be fast; integration tests can be slower
+
+### Example Test Structure
+
+```ruby
+require "test_helper"
+
+class SwarmSDK::MyFeatureTest < Minitest::Test
+  def setup
+    @swarm = SwarmSDK::Swarm.new(name: "Test Swarm")
+  end
+
+  def teardown
+    @swarm.cleanup if @swarm
+  end
+
+  def test_feature_works
+    # Suppress output
+    _out, _err = capture_io do
+      result = @swarm.execute("test prompt")
+      assert result.success?
+    end
+  end
+end
+```
 
 ## Zeitwerk Autoloading
 
@@ -230,40 +244,135 @@ This project uses Zeitwerk for automatic class loading. Important guidelines:
 
 ### Require Statement Rules
 
-1. **DO NOT include any require statements for lib files**: Zeitwerk automatically loads all classes under `lib/claude_swarm/`. Never use `require`, `require_relative`, or `require "claude_swarm/..."` for internal project files.
+1. **DO NOT include any require statements for lib files**: Zeitwerk automatically loads all classes. Never use `require`, `require_relative`, or `require "swarm_sdk/..."` for internal project files.
 
-2. **All dependencies must be consolidated in lib/claude_swarm.rb**: Both standard library and external gem dependencies are required at the top of `lib/claude_swarm.rb`. This includes:
-   - Standard library dependencies (json, yaml, fileutils, etc.)
-   - External gem dependencies (thor, openai, mcp_client, fast_mcp_annotations)
+2. **All dependencies must be consolidated in the main file**:
+   - `lib/swarm_sdk.rb` - SDK dependencies
+   - `lib/swarm_memory.rb` - Memory dependencies
+   - `lib/swarm_cli.rb` - CLI dependencies
 
-3. **No requires in other lib files**: Individual files in `lib/claude_swarm/` should not have any require statements. They rely on:
-   - Dependencies loaded in `lib/claude_swarm.rb`
+3. **No requires in other lib files**: Individual files should not have any require statements. They rely on:
+   - Dependencies loaded in the main file
    - Other classes autoloaded by Zeitwerk
 
 ### Example
 
 ```ruby
-# ✅ CORRECT - lib/claude_swarm.rb
-# Standard library dependencies
-require "json"
-require "yaml"
-require "fileutils"
-# ... other standard libraries
-
-# External dependencies
-require "thor"
-require "openai"
-# ... other gems
-
-# Zeitwerk setup
+# ✅ CORRECT - lib/swarm_sdk.rb
+require "async"
+require "ruby_llm"
 require "zeitwerk"
-loader = Zeitwerk::Loader.for_gem
+loader = Zeitwerk::Loader.new
 loader.setup
 
-# ❌ INCORRECT - lib/claude_swarm/some_class.rb
-require "json"  # Don't do this!
+# ❌ INCORRECT - lib/swarm_sdk/some_class.rb
+require "async"  # Don't do this!
 require_relative "other_class"  # Don't do this!
-require "claude_swarm/configuration"  # Don't do this!
+require "swarm_sdk/configuration"  # Don't do this!
 ```
 
-This approach ensures clean dependency management and leverages Ruby's modern autoloading capabilities.
+## Development Guidelines
+
+**Code Quality:**
+- Write PROFESSIONAL, CLEAN, MAINTAINABLE, TESTABLE code
+- NEVER mix SDK, Memory, and CLI code
+- NEVER call private methods from outside a class
+- NEVER use `send`, `instance_variable_get`, or `instance_variable_set`
+- DO NOT create methods only for testing - write production testable code
+
+**Architecture:**
+- Keep concerns separated (SDK = API, Memory = Storage, CLI = Interface)
+- Use dependency injection for testability
+- Follow Ruby idioms and conventions
+- Document public APIs with YARD comments
+
+**Testing:**
+- Write tests for new features
+- Maintain test coverage
+- Tests should be fast and isolated
+- No stdout/stderr output in tests
+
+## Key Concepts
+
+### SwarmSDK Concepts
+
+**Agents**: AI agents with specific roles, tools, and capabilities
+**Delegation**: Agents can delegate tasks to other specialized agents
+**Tools**: Built-in and custom tools for agent capabilities
+**Events**: Comprehensive logging and monitoring system
+**Hooks**: Lifecycle hooks for pre/post tool execution
+**State**: Snapshot/restore for session persistence
+
+### SwarmMemory Concepts
+
+**Memory Entries**: Markdown files with frontmatter metadata
+**Semantic Search**: ONNX-based embeddings for similarity search
+**Storage**: Hierarchical file-based storage
+**Index**: FAISS index for fast nearest-neighbor search
+**Tools**: Memory manipulation tools integrated with SDK
+
+### SwarmCLI Concepts
+
+**Interactive Mode**: REPL with rich terminal UI
+**Non-Interactive Mode**: Automation-friendly JSON output
+**Configuration**: YAML-based swarm definitions
+**Event Rendering**: Real-time display of agent actions
+
+## Dependencies
+
+### SwarmSDK
+- `async` (~> 2.0) - Concurrent execution
+- `ruby_llm` (~> 1.9) - LLM interactions
+- `ruby_llm-mcp` (~> 0.7) - MCP client support
+- `zeitwerk` (~> 2.6) - Autoloading
+
+### SwarmMemory
+- `async` (~> 2.0) - Concurrent execution
+- `informers` (~> 1.2.1) - ONNX embeddings for semantic search
+- `rice` (~> 4.6.0) - Ruby C extension binding (for FAISS)
+- `ruby_llm` (~> 1.9) - LLM interactions
+- `swarm_sdk` (~> 2.2) - Core SDK integration
+- `zeitwerk` (~> 2.6) - Autoloading
+
+### SwarmCLI
+- `fast-mcp` (~> 1.6) - MCP server support for CLI
+- `pastel` - Terminal text styling and colors
+- `swarm_sdk` (~> 2.2) - Core SDK
+- `tty-box` - Drawing boxes and frames
+- `tty-cursor` - Terminal cursor control
+- `tty-link` - Hyperlink support
+- `tty-markdown` - Markdown rendering
+- `tty-option` - Command-line option parsing
+- `tty-spinner` - Progress indicators
+- `tty-tree` - Tree structure rendering
+- `zeitwerk` - Autoloading
+- `reline` - Line editing (Ruby stdlib, no gem dependency)
+
+**Document parsing tools (for Read tool):**
+- `csv` - CSV file parsing
+- `docx` (~> 0.10) - Word document parsing
+- `pdf-reader` (~> 2.15) - PDF parsing
+- `reverse_markdown` (~> 3.0.0) - HTML to Markdown conversion
+- `roo` (~> 3.0.0) - Spreadsheet parsing (xlsx, xlsm, ods)
+
+## Additional Resources
+
+- **SwarmSDK Documentation**: See `docs/v2/` for comprehensive guides
+- **SwarmMemory Documentation**: See `docs/memory/` for memory system details
+- **SwarmCLI Documentation**: See `docs/cli/` for CLI usage and configuration
+- **RubyLLM Documentation**: ~/src/github.com/crmne/ruby_llm
+- **Async Documentation**: ~/src/github.com/socketry/async
+
+## Notes for Claude Code
+
+When working with this codebase:
+
+1. **Always check which component** you're working with (SDK, Memory, or CLI)
+2. **Never cross boundaries** between components unless through public APIs
+3. **Run component-specific tests** after making changes
+4. **Follow Zeitwerk rules** - no require statements in lib files
+5. **Maintain code quality** - professional, clean, testable code
+6. **Suppress test output** - use capture_io for silent tests
+7. **Document public APIs** - use YARD comments for public methods
+
+This is an open-source project - code should be exemplary and well-documented.

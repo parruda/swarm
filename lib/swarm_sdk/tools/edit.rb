@@ -10,6 +10,13 @@ module SwarmSDK
     class Edit < RubyLLM::Tool
       include PathResolver
 
+      # Factory pattern: declare what parameters this tool needs for instantiation
+      class << self
+        def creation_requirements
+          [:agent_name, :directory]
+        end
+      end
+
       description <<~DESC
         Performs exact string replacements in files.
         You must use your Read tool at least once in the conversation before editing.
@@ -55,8 +62,7 @@ module SwarmSDK
       # @param directory [String] Agent's working directory
       def initialize(agent_name:, directory:)
         super()
-        @agent_name = agent_name.to_sym
-        @directory = File.expand_path(directory)
+        initialize_agent_context(agent_name: agent_name, directory: directory)
       end
 
       # Override name to return simple "Edit" instead of full class path
@@ -133,17 +139,6 @@ module SwarmSDK
         error("Permission denied: Cannot read or write file '#{file_path}'")
       rescue StandardError => e
         error("Unexpected error editing file: #{e.class.name} - #{e.message}")
-      end
-
-      private
-
-      # Helper methods
-      def validation_error(message)
-        "<tool_use_error>InputValidationError: #{message}</tool_use_error>"
-      end
-
-      def error(message)
-        "Error: #{message}"
       end
     end
   end

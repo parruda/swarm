@@ -32,6 +32,116 @@ result = swarm.execute("Task prompt")
 
 ## Top-Level Methods
 
+### SwarmSDK.build
+
+Build a simple multi-agent swarm.
+
+**Signature:**
+```ruby
+SwarmSDK.build(allow_filesystem_tools: nil) {|builder| ... } → Swarm
+```
+
+**Returns:**
+- `Swarm` - Always returns a Swarm instance (simple multi-agent collaboration)
+
+**Parameters:**
+- `allow_filesystem_tools` (Boolean, optional): Override global filesystem tools setting for this swarm
+- `block` (required): Configuration block using the DSL
+
+**Description:**
+Creates a simple multi-agent swarm where agents can collaborate through delegation. Use this for most use cases where you need multiple AI agents working together.
+
+**Example:**
+```ruby
+swarm = SwarmSDK.build do
+  name "Development Team"
+  lead :backend
+
+  agent :backend do
+    model "gpt-4"
+    description "Backend developer"
+    tools :Read, :Write, :Bash
+    delegates_to :tester
+  end
+
+  agent :tester do
+    model "gpt-4o-mini"
+    description "Test specialist"
+    tools :Read, :Bash
+  end
+end
+
+result = swarm.execute("Build authentication API")
+```
+
+**Notes:**
+- Cannot use `node` definitions (raises `ConfigurationError`)
+- Must specify `lead` agent
+- For multi-stage workflows, use `SwarmSDK.workflow` instead
+
+---
+
+### SwarmSDK.workflow
+
+Build a multi-stage workflow with nodes.
+
+**Signature:**
+```ruby
+SwarmSDK.workflow(allow_filesystem_tools: nil) {|builder| ... } → Workflow
+```
+
+**Returns:**
+- `Workflow` - Always returns a Workflow instance (multi-stage pipeline)
+
+**Parameters:**
+- `allow_filesystem_tools` (Boolean, optional): Override global filesystem tools setting for this workflow
+- `block` (required): Configuration block using the DSL
+
+**Description:**
+Creates a multi-stage workflow where different teams of agents execute in sequence. Each node is an independent swarm execution with its own agent configuration and delegation topology. Use this for complex pipelines with distinct stages (planning → implementation → testing).
+
+**Example:**
+```ruby
+workflow = SwarmSDK.workflow do
+  name "Build Pipeline"
+  start_node :planning
+
+  agent :architect do
+    model "gpt-4"
+    description "System architect"
+  end
+
+  agent :coder do
+    model "gpt-4"
+    description "Implementation specialist"
+  end
+
+  node :planning do
+    agent(:architect)
+  end
+
+  node :implementation do
+    agent(:coder)
+    depends_on :planning
+
+    # Transform input from planning node
+    input do |ctx|
+      "Implement this plan:\n#{ctx.content}"
+    end
+  end
+end
+
+result = workflow.execute("Build authentication system")
+```
+
+**Notes:**
+- Cannot use `lead` (raises `ConfigurationError`)
+- Must specify `start_node`
+- Nodes execute in topological order based on `depends_on`
+- Each node can have different agents and delegation topology
+
+---
+
 ### SwarmSDK.configure
 
 Configure global SwarmSDK settings.
@@ -105,7 +215,7 @@ Build a swarm using the DSL.
 
 **Signature:**
 ```ruby
-SwarmSDK.build(allow_filesystem_tools: nil, &block) → Swarm | NodeOrchestrator
+SwarmSDK.build(allow_filesystem_tools: nil, &block) → Swarm | Workflow
 ```
 
 **Parameters:**
@@ -114,7 +224,7 @@ SwarmSDK.build(allow_filesystem_tools: nil, &block) → Swarm | NodeOrchestrator
 
 **Returns:**
 - `Swarm`: For single-swarm configurations
-- `NodeOrchestrator`: For multi-node workflow configurations
+- `Workflow`: For multi-node workflow configurations
 
 **Example:**
 ```ruby
@@ -400,7 +510,7 @@ scratchpad(mode) → void
 **Parameters:**
 - `mode` (Symbol, required): Scratchpad mode
   - For regular Swarms: `:enabled` or `:disabled`
-  - For NodeOrchestrator (workflows with nodes): `:enabled`, `:per_node`, or `:disabled`
+  - For Workflow (workflows with nodes): `:enabled`, `:per_node`, or `:disabled`
 
 **Default:** `:disabled`
 
@@ -409,8 +519,8 @@ Controls scratchpad availability and sharing behavior:
 
 - **`:enabled`**: Scratchpad tools available (ScratchpadWrite, ScratchpadRead, ScratchpadList)
   - Regular Swarm: All agents share one scratchpad
-  - NodeOrchestrator: All nodes share one scratchpad across the workflow
-- **`:per_node`**: (NodeOrchestrator only) Each node gets isolated scratchpad storage
+  - Workflow: All nodes share one scratchpad across the workflow
+- **`:per_node`**: (Workflow only) Each node gets isolated scratchpad storage
 - **`:disabled`**: No scratchpad tools available
 
 Scratchpad is volatile (in-memory only) and provides temporary storage for cross-agent or cross-node communication.
@@ -423,7 +533,7 @@ SwarmSDK.build do
   scratchpad :disabled # Disable scratchpad (default)
 end
 
-# NodeOrchestrator - shared across nodes
+# Workflow - shared across nodes
 SwarmSDK.build do
   scratchpad :enabled  # All nodes share one scratchpad
 
@@ -432,7 +542,7 @@ SwarmSDK.build do
   start_node :planning
 end
 
-# NodeOrchestrator - isolated per node
+# Workflow - isolated per node
 SwarmSDK.build do
   scratchpad :per_node  # Each node gets its own scratchpad
 
@@ -910,7 +1020,7 @@ delegates_to(*agent_names) → void
 
 **Behavior:**
 - Multiple calls are cumulative
-- Creates a `DelegateTaskTo{Agent}` tool for each target (e.g., `DelegateTaskToDatabase`)
+- Creates a `WorkWith{Agent}` tool for each target (e.g., `WorkWithDatabase`)
 
 **Example:**
 ```ruby
@@ -1962,16 +2072,19 @@ Execute a task using the lead agent.
 
 **Signature:**
 ```ruby
-swarm.execute(prompt, &block) → Result
+swarm.execute(prompt, wait: true, &block) → Result | Async::Task
 ```
 
 **Parameters:**
 - `prompt` (String, required): Task prompt
+- `wait` (Boolean, optional): If true (default), blocks until execution completes. If false, returns Async::Task immediately for non-blocking execution.
 - `block` (optional): Log entry handler for streaming
 
-**Returns:** `Result` object
+**Returns:**
+- `Result` if `wait: true` (default)
+- `Async::Task` if `wait: false`
 
-**Example:**
+**Example - Blocking execution (default):**
 ```ruby
 # Basic execution
 result = swarm.execute("Build a REST API")
@@ -1991,6 +2104,36 @@ else
   puts "Error: #{result.error.message}"
 end
 ```
+
+**Example - Non-blocking execution with cancellation:**
+```ruby
+# Start non-blocking execution
+task = swarm.execute("Build a REST API", wait: false) do |log_entry|
+  puts "#{log_entry[:type]}: #{log_entry[:agent]}"
+end
+
+# ... do other work ...
+
+# Cancel anytime
+task.stop
+
+# Wait for result (returns nil if cancelled)
+result = task.wait
+if result.nil?
+  puts "Execution was cancelled"
+elsif result.success?
+  puts result.content
+else
+  puts "Error: #{result.error.message}"
+end
+```
+
+**Non-blocking execution details:**
+- **`wait: false`**: Returns `Async::Task` immediately, enabling cancellation via `task.stop`
+- **Cooperative cancellation**: Stops when fiber yields (HTTP I/O, tool boundaries), not immediate
+- **Proper cleanup**: MCP clients, fiber storage, and logging cleaned in task's ensure block
+- **`task.wait` returns nil**: Cancelled tasks return `nil` from `wait` method
+- **Use cases**: Long-running tasks, user-initiated cancellation, timeout handling
 
 ---
 
@@ -2421,7 +2564,7 @@ Jump to a different node with custom content, bypassing normal dependency order.
 - `node_name` (Symbol, required): Target node name
 - `content` (String, required): Content to pass to target node (validated non-nil)
 
-**Returns:** Control hash (processed by NodeOrchestrator)
+**Returns:** Control hash (processed by Workflow)
 
 **Valid in:** Both input and output transformers
 
@@ -2452,7 +2595,7 @@ Stop entire workflow execution immediately and return content as final result.
 **Parameters:**
 - `content` (String, required): Final content to return (validated non-nil)
 
-**Returns:** Control hash (processed by NodeOrchestrator)
+**Returns:** Control hash (processed by Workflow)
 
 **Valid in:** Both input and output transformers
 
@@ -2483,7 +2626,7 @@ Skip LLM execution for current node and use provided content instead.
 **Parameters:**
 - `content` (String, required): Content to use instead of LLM execution (validated non-nil)
 
-**Returns:** Control hash (processed by NodeOrchestrator)
+**Returns:** Control hash (processed by Workflow)
 
 **Valid in:** Input transformers only
 

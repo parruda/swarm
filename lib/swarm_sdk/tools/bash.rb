@@ -7,6 +7,13 @@ module SwarmSDK
     # Executes commands in a persistent shell session with timeout support.
     # Provides comprehensive guidance on proper usage patterns.
     class Bash < RubyLLM::Tool
+      # Factory pattern: declare what parameters this tool needs for instantiation
+      class << self
+        def creation_requirements
+          [:directory]
+        end
+      end
+
       def initialize(directory:)
         super()
         @directory = File.expand_path(directory)
@@ -78,9 +85,10 @@ module SwarmSDK
         desc: "Optional timeout in milliseconds (max 600000)",
         required: false
 
-      DEFAULT_TIMEOUT_MS = 120_000 # 2 minutes
-      MAX_TIMEOUT_MS = 600_000 # 10 minutes
-      MAX_OUTPUT_LENGTH = 30_000 # characters
+      # Backward compatibility aliases - use Defaults module for new code
+      DEFAULT_TIMEOUT_MS = Defaults::Timeouts::BASH_COMMAND_MS
+      MAX_TIMEOUT_MS = Defaults::Timeouts::BASH_COMMAND_MAX_MS
+      MAX_OUTPUT_LENGTH = Defaults::Limits::OUTPUT_CHARACTERS
 
       # Commands that are ALWAYS blocked for safety reasons
       # These cannot be overridden by permissions configuration

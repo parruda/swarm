@@ -930,12 +930,12 @@ swarm:
 **How delegation works**:
 1. You send task to `developer`
 2. Developer writes code using Write tool
-3. Developer calls `DelegateTaskToReviewer(task: "Review this code")`
+3. Developer calls `WorkWithReviewer(message: "Review this code")`
 4. Reviewer analyzes code and returns feedback
 5. Developer receives feedback and can iterate
 6. Developer returns final result to you
 
-**The delegation tool**: When you configure `delegates_to: [reviewer]`, the developer automatically gets a `DelegateTaskToReviewer` tool.
+**The delegation tool**: When you configure `delegates_to: [reviewer]`, the developer automatically gets a `WorkWithReviewer` tool.
 
 ### 3.2 Multi-Level Delegation
 

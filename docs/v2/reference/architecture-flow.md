@@ -93,7 +93,7 @@ flowchart TB
     end
 
     subgraph "Node Workflows"
-        NODE_ORCH["NodeOrchestrator<br/>(multi-stage execution)"]
+        NODE_ORCH["Workflow<br/>(multi-stage execution)"]
         NODE_CTX["NodeContext<br/>(goto_node, halt_workflow, skip_execution)"]
         TRANSFORMERS["Bash/Ruby Transformers<br/>(input/output transformation)"]
         MINI_SWARMS["Mini-Swarms<br/>(one per node)"]
@@ -318,7 +318,7 @@ Event occurs →
 
 ### 9. Node Workflow Flow
 ```
-NodeOrchestrator.execute →
+Workflow.execute →
   Build execution order (topological sort) →
   For each node:
     Input transformer (Bash/Ruby) →
@@ -339,7 +339,7 @@ NodeOrchestrator.execute →
 - **AgentInitializer**: Complex 5-pass initialization (tools, MCP, delegation, hooks)
 - **ToolConfigurator**: Tool registration, creation, permissions wrapping
 - **McpConfigurator**: MCP client management, external tool integration
-- **NodeOrchestrator**: Multi-stage workflows with transformers
+- **Workflow**: Multi-stage workflows with transformers
 - **Plugin System**: Extensibility framework (SwarmMemory uses this)
 
 ### SwarmCLI

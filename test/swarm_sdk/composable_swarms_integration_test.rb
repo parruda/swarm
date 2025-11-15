@@ -318,9 +318,9 @@ module SwarmSDK
       assert_nil(swarm.parent_swarm_id)
     end
 
-    def test_node_orchestrator_accepts_swarm_id_and_registry_config
+    def test_workflow_accepts_swarm_id_and_registry_config
       # Build via DSL which properly sets up nodes
-      orchestrator = SwarmSDK.build do
+      orchestrator = SwarmSDK.workflow do
         id("dev_workflow")
         name("Dev Workflow")
         start_node(:planning)
@@ -338,7 +338,7 @@ module SwarmSDK
       end
 
       # Verify orchestrator type and properties
-      assert_instance_of(NodeOrchestrator, orchestrator)
+      assert_instance_of(Workflow, orchestrator)
       assert_equal("Dev Workflow", orchestrator.swarm_name)
       assert_equal(:planning, orchestrator.start_node)
     end

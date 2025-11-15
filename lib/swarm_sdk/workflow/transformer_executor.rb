@@ -5,7 +5,7 @@ require "json"
 require "timeout"
 
 module SwarmSDK
-  module Node
+  class Workflow
     # Executes bash command transformers for node input/output transformation
     #
     # Transformers are shell commands that receive NodeContext data on STDIN as JSON
@@ -90,7 +90,8 @@ module SwarmSDK
     #   echo "$CONTENT"
     #   exit 0
     class TransformerExecutor
-      DEFAULT_TIMEOUT = 60
+      # Backward compatibility alias - use Defaults module for new code
+      DEFAULT_TIMEOUT = Defaults::Timeouts::TRANSFORMER_COMMAND_SECONDS
 
       # Result object for transformer execution
       TransformerResult = Struct.new(:success, :content, :skip_execution, :halt, :error_message, keyword_init: true) do

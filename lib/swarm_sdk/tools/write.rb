@@ -10,6 +10,13 @@ module SwarmSDK
     class Write < RubyLLM::Tool
       include PathResolver
 
+      # Factory pattern: declare what parameters this tool needs for instantiation
+      class << self
+        def creation_requirements
+          [:agent_name, :directory]
+        end
+      end
+
       description <<~DESC
         Writes a file to the local filesystem.
         This tool will overwrite the existing file if there is one at the provided path.
@@ -42,8 +49,7 @@ module SwarmSDK
       # @param directory [String] Agent's working directory
       def initialize(agent_name:, directory:)
         super()
-        @agent_name = agent_name.to_sym
-        @directory = File.expand_path(directory)
+        initialize_agent_context(agent_name: agent_name, directory: directory)
       end
 
       # Override name to return simple "Write" instead of full class path
@@ -100,17 +106,6 @@ module SwarmSDK
         error("Failed to create parent directory: #{e.message}")
       rescue StandardError => e
         error("Unexpected error writing file: #{e.class.name} - #{e.message}")
-      end
-
-      private
-
-      # Helper methods
-      def validation_error(message)
-        "<tool_use_error>InputValidationError: #{message}</tool_use_error>"
-      end
-
-      def error(message)
-        "Error: #{message}"
       end
     end
   end

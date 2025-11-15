@@ -100,7 +100,7 @@ Emitted once per agent when agents are initialized (lazy initialization).
   provider: "openai",                          # Provider name
   directory: "./backend",                      # Working directory
   system_prompt: "You are a backend dev...",   # Full system prompt
-  tools: [:Read, :Edit, :Bash, :DelegateTaskToFrontend], # Array of tool names
+  tools: [:Read, :Edit, :Bash, :WorkWithFrontend], # Array of tool names
   delegates_to: [:frontend],                   # Array of delegate agent names
   plugin_storages: {                           # Plugin storage info (optional)
     memory: {

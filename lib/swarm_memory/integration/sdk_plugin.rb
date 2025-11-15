@@ -209,7 +209,7 @@ module SwarmMemory
 
       # Contribute to agent serialization
       #
-      # Preserves memory configuration when agents are cloned (e.g., in NodeOrchestrator).
+      # Preserves memory configuration when agents are cloned (e.g., in Workflow).
       # This allows memory configuration to persist across node transitions.
       #
       # @param agent_definition [Agent::Definition] Agent definition

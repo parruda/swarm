@@ -80,7 +80,7 @@ module SwarmSDK
           Configuration.load_file(path)
         end
 
-        assert_match(/missing 'swarm' field/i, error.message)
+        assert_match(/missing 'swarm:' or 'workflow:' key/i, error.message)
       end
     end
 

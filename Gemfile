@@ -23,3 +23,4 @@ gem "rubocop-rake", require: false
 
 gem "headless_browser_tool", require: false
 gem "vcr"
+gem "ruby_llm_pro", path: "~/src/github.com/parruda/ruby_llm"

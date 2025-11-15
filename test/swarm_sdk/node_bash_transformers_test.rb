@@ -30,7 +30,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Exit 0 Test")
 
         node(:transform) do
@@ -61,7 +61,7 @@ module SwarmSDK
 
       skip_was_triggered = false
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Exit 1 Test")
 
         node(:first) do
@@ -98,7 +98,7 @@ module SwarmSDK
         exit 2
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Exit 2 Test")
 
         node(:halt_node) do
@@ -128,7 +128,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Output Exit 0 Test")
 
         node(:test) do
@@ -152,7 +152,7 @@ module SwarmSDK
         exit 1
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Output Exit 1 Test")
 
         node(:test) do
@@ -184,7 +184,7 @@ module SwarmSDK
         exit 2
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Output Exit 2 Test")
 
         node(:test) do
@@ -219,7 +219,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("JSON Test")
 
         node(:test) do
@@ -252,7 +252,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("All Results Test")
 
         node(:planning) do
@@ -293,7 +293,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Both Transformers Test")
 
         node(:test) do
@@ -319,7 +319,7 @@ module SwarmSDK
         exit 1  # Skip
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Exit 1 Ignore STDOUT Test")
 
         node(:first) do
@@ -352,7 +352,7 @@ module SwarmSDK
         exit 2  # Halt
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Exit 2 Ignore STDOUT Test")
 
         node(:halt) do
@@ -383,7 +383,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Env Vars Test")
 
         node(:env_test) do
@@ -404,7 +404,7 @@ module SwarmSDK
 
     def test_command_not_found_halts_workflow
       # Non-existent command should halt workflow
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Command Not Found Test")
 
         node(:test) do
@@ -428,7 +428,7 @@ module SwarmSDK
       File.write(script_path, "#!/bin/bash\necho 'test'\n")
       # Don't chmod +x
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Non-executable Test")
 
         node(:test) do
@@ -455,7 +455,7 @@ module SwarmSDK
         exit 2
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("STDERR Test")
 
         node(:test) do
@@ -483,7 +483,7 @@ module SwarmSDK
         exit 1  # Skip node
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Skip LLM Test")
 
         agent(:dummy) do
@@ -537,7 +537,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Dependencies JSON Test")
 
         node(:node1) do
@@ -573,7 +573,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Output No Deps Test")
 
         node(:first) do
@@ -602,7 +602,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Syntax Error Test")
 
         node(:test) do
@@ -637,7 +637,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Multi-dep All Results Test")
 
         node(:node1) do
@@ -680,7 +680,7 @@ module SwarmSDK
         exit 0
       BASH
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Metadata Test")
 
         node(:planning) do

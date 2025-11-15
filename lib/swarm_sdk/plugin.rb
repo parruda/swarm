@@ -10,7 +10,7 @@ module SwarmSDK
   # ## Adding Custom Attributes to Agents
   #
   # Plugins can add custom attributes to Agent::Definition that are preserved
-  # when agents are cloned (e.g., in NodeOrchestrator). To do this:
+  # when agents are cloned (e.g., in Workflow). To do this:
   #
   # 1. Add attr_reader to Agent::Definition for your attribute
   # 2. Parse the attribute in Agent::Definition#initialize
@@ -62,7 +62,7 @@ module SwarmSDK
   #     my_custom_config { option: "value" }
   #   end
   #
-  # And it will be preserved when NodeOrchestrator clones the agent!
+  # And it will be preserved when Workflow clones the agent!
   #
   # @example Real-world: SwarmMemory plugin
   #   # SwarmMemory adds 'memory' attribute to agents
@@ -197,7 +197,7 @@ module SwarmSDK
     # Contribute to agent serialization (optional)
     #
     # Called when Agent::Definition.to_h is invoked (e.g., for cloning agents
-    # in NodeOrchestrator). Plugins can return config keys that should be
+    # in Workflow). Plugins can return config keys that should be
     # included in the serialized hash to preserve their state.
     #
     # This allows plugins to maintain their configuration when agents are

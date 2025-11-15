@@ -17,9 +17,9 @@ module SwarmSDK
     #   total_tokens = TokenCounter.estimate_messages(messages)
     #
     class TokenCounter
-      # Average characters per token for different content types
-      CHARS_PER_TOKEN_PROSE = 4.0
-      CHARS_PER_TOKEN_CODE = 3.5
+      # Backward compatibility aliases - use Defaults module for new code
+      CHARS_PER_TOKEN_PROSE = Defaults::TokenEstimation::CHARS_PER_TOKEN_PROSE
+      CHARS_PER_TOKEN_CODE = Defaults::TokenEstimation::CHARS_PER_TOKEN_CODE
 
       class << self
         # Estimate tokens for a single message

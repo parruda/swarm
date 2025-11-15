@@ -145,9 +145,9 @@ module SwarmSDK
 
       # Get the delegation tool directly
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:DelegateTaskToBackend]
+      delegation_tool = lead_agent.tools[:WorkWithBackend]
 
-      result = delegation_tool.execute(task: "Build API")
+      result = delegation_tool.execute(message: "Build API")
 
       assert_equal("Delegation blocked by test", result)
     end
@@ -157,7 +157,7 @@ module SwarmSDK
 
       # Add callback that replaces delegation with custom result
       swarm.add_default_callback(:pre_delegation) do |context|
-        if context.metadata[:task].include?("mock")
+        if context.metadata[:message].include?("mock")
           SwarmSDK::Hooks::Result.replace("Mocked delegation result")
         end
       end
@@ -172,9 +172,9 @@ module SwarmSDK
       end
 
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:DelegateTaskToBackend]
+      delegation_tool = lead_agent.tools[:WorkWithBackend]
 
-      result = delegation_tool.execute(task: "mock Build API")
+      result = delegation_tool.execute(message: "mock Build API")
 
       assert_equal("Mocked delegation result", result)
     end
@@ -198,9 +198,9 @@ module SwarmSDK
       end
 
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:DelegateTaskToBackend]
+      delegation_tool = lead_agent.tools[:WorkWithBackend]
 
-      result = delegation_tool.execute(task: "Build API")
+      result = delegation_tool.execute(message: "Build API")
 
       assert_equal("Modified: Backend response", result)
     end
@@ -224,15 +224,15 @@ module SwarmSDK
       backend_agent.define_singleton_method(:ask) { |_, **_options| Struct.new(:content).new("Done") }
 
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:DelegateTaskToBackend]
+      delegation_tool = lead_agent.tools[:WorkWithBackend]
 
-      delegation_tool.execute(task: "Test task")
+      delegation_tool.execute(message: "Test task")
 
       # Verify context has correct fields
       assert_equal(:pre_delegation, captured_context.event)
       assert_equal("backend", captured_context.delegation_target)
-      assert_equal("Test task", captured_context.metadata[:task])
-      assert_equal("DelegateTaskToBackend", captured_context.metadata[:tool_name])
+      assert_equal("Test task", captured_context.metadata[:message])
+      assert_equal("WorkWithBackend", captured_context.metadata[:tool_name])
       assert(captured_context.metadata[:timestamp])
     end
 
@@ -257,9 +257,9 @@ module SwarmSDK
       end
 
       lead_agent = swarm.agent(:lead)
-      delegation_tool = lead_agent.tools[:DelegateTaskToBackend]
+      delegation_tool = lead_agent.tools[:WorkWithBackend]
 
-      delegation_tool.execute(task: "Test task")
+      delegation_tool.execute(message: "Test task")
 
       # Verify context has result
       assert_equal(:post_delegation, captured_context.event)
@@ -329,8 +329,8 @@ module SwarmSDK
         unless delegation_called
           delegation_called = true
           # Call the delegation tool
-          delegation_tool = tools[:DelegateTaskToBackend]
-          delegation_tool&.execute(task: "Build API")
+          delegation_tool = tools[:WorkWithBackend]
+          delegation_tool&.execute(message: "Build API")
         end
         Struct.new(:content).new("Lead response")
       end

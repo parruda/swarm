@@ -10,8 +10,9 @@ module SwarmSDK
     class Read < RubyLLM::Tool
       include PathResolver
 
-      MAX_LINE_LENGTH = 2000
-      DEFAULT_LIMIT = 2000
+      # Backward compatibility aliases - use Defaults module for new code
+      MAX_LINE_LENGTH = Defaults::Limits::LINE_CHARACTERS
+      DEFAULT_LIMIT = Defaults::Limits::READ_LINES
 
       # List of available document converters
       CONVERTERS = [
@@ -26,6 +27,13 @@ module SwarmSDK
         "- Document files: #{available_formats.join(", ")} are converted to text"
       else
         ""
+      end
+
+      # Factory pattern: declare what parameters this tool needs for instantiation
+      class << self
+        def creation_requirements
+          [:agent_name, :directory]
+        end
       end
 
       description <<~DESC
@@ -67,8 +75,7 @@ module SwarmSDK
       # @param directory [String] Agent's working directory
       def initialize(agent_name:, directory:)
         super()
-        @agent_name = agent_name.to_sym
-        @directory = File.expand_path(directory)
+        initialize_agent_context(agent_name: agent_name, directory: directory)
       end
 
       # Override name to return simple "Read" instead of full class path
@@ -180,15 +187,6 @@ module SwarmSDK
       def find_converter_for_file(file_path)
         ext = File.extname(file_path).downcase
         CONVERTERS.find { |converter| converter.extensions.include?(ext) }
-      end
-
-      # Helper methods
-      def validation_error(message)
-        "<tool_use_error>InputValidationError: #{message}</tool_use_error>"
-      end
-
-      def error(message)
-        "Error: #{message}"
       end
 
       def format_with_reminder(content, reminder)
