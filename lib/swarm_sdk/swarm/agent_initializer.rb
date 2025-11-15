@@ -166,7 +166,7 @@ module SwarmSDK
                 delegating_chat: delegator_chat,
               )
 
-              delegator_chat.with_tool(tool)
+              delegator_chat.add_tool(tool)
             elsif @agent_definitions.key?(delegate_base_name)
               # Delegate to local agent
               delegate_definition = @agent_definitions[delegate_base_name]
@@ -190,7 +190,7 @@ module SwarmSDK
                 delegating_chat: delegator_chat,
               )
 
-              delegator_chat.with_tool(tool)
+              delegator_chat.add_tool(tool)
             else
               raise ConfigurationError, "Agent '#{delegator_name}' delegates to unknown target '#{delegate_base_name_str}' (not a local agent or registered swarm)"
             end
@@ -219,7 +219,7 @@ module SwarmSDK
                 delegating_chat: delegation_chat,
               )
 
-              delegation_chat.with_tool(nested_tool)
+              delegation_chat.add_tool(nested_tool)
             elsif @agent_definitions.key?(nested_delegate_name_sym)
               # Delegate to local agent
               nested_definition = @agent_definitions[nested_delegate_name_sym]
@@ -251,7 +251,7 @@ module SwarmSDK
                 delegating_chat: delegation_chat,
               )
 
-              delegation_chat.with_tool(nested_tool)
+              delegation_chat.add_tool(nested_tool)
             else
               raise ConfigurationError,
                 "Delegation instance '#{instance_name}' delegates to unknown target '#{nested_delegate_name_str}' (not a local agent or registered swarm)"
@@ -495,7 +495,7 @@ module SwarmSDK
               delegating_chat: chat,
             )
 
-            chat.with_tool(tool)
+            chat.add_tool(tool)
           elsif @swarm.swarm_registry&.registered?(delegate_name_str)
             # Delegate to registered swarm
             tool = create_delegation_tool(
@@ -506,7 +506,7 @@ module SwarmSDK
               delegating_chat: chat,
             )
 
-            chat.with_tool(tool)
+            chat.add_tool(tool)
           else
             raise ConfigurationError, "Agent '#{agent_name}' delegates to unknown target '#{delegate_name_str}' (not a local agent or registered swarm)"
           end

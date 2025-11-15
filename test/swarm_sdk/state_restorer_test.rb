@@ -1208,7 +1208,7 @@ module SwarmSDK
         @messages = []
       end
 
-      def with_instructions(prompt)
+      def configure_system_prompt(prompt)
         @messages << RubyLLM::Message.new(role: :system, content: prompt) if prompt
       end
 
@@ -1253,7 +1253,7 @@ module SwarmSDK
         @messages = []
       end
 
-      def with_instructions(prompt)
+      def configure_system_prompt(prompt)
         @messages << RubyLLM::Message.new(role: :system, content: prompt) if prompt
       end
 

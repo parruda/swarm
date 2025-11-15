@@ -25,7 +25,7 @@ module SwarmSDK
 
     def initialize(swarm_name:, agent_definitions:, nodes:, start_node:, swarm_id: nil, scratchpad: :enabled, allow_filesystem_tools: nil)
       @swarm_name = swarm_name
-      @swarm_id = swarm_id
+      @swarm_id = swarm_id || generate_swarm_id(swarm_name)
       @parent_swarm_id = nil # Workflows don't have parent swarms
       @agent_definitions = agent_definitions
       @nodes = nodes
@@ -428,6 +428,11 @@ module SwarmSDK
     # Format: "exec_workflow_{random_hex}"
     #
     # @return [String] Generated execution ID (e.g., "exec_workflow_a3f2b1c8")
+    def generate_swarm_id(name)
+      sanitized = name.to_s.gsub(/[^a-z0-9_-]/i, "_").downcase
+      "#{sanitized}_#{SecureRandom.hex(4)}"
+    end
+
     def generate_execution_id
       "exec_workflow_#{SecureRandom.hex(8)}"
     end

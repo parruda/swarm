@@ -231,7 +231,7 @@ module SwarmSDK
       end
 
       # Apply system prompt as system message
-      agent_chat.with_instructions(system_prompt) if system_prompt
+      agent_chat.configure_system_prompt(system_prompt) if system_prompt
 
       # Restore conversation messages
       conversation = snapshot_data[:conversation] || snapshot_data["conversation"]
@@ -361,7 +361,7 @@ module SwarmSDK
       end
 
       # Apply system prompt
-      delegation_chat.with_instructions(system_prompt) if system_prompt
+      delegation_chat.configure_system_prompt(system_prompt) if system_prompt
 
       # Restore conversation messages
       conversation = snapshot_data[:conversation] || snapshot_data["conversation"]

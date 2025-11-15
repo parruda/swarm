@@ -285,41 +285,24 @@ module SwarmSDK
       current_prompt = prompt
       has_logging = block_given?
 
-      # REMOVED: Scheduler cleanup - let Async gem manage it
-      # Previously we cleared Fiber.scheduler to force clean Async() behavior,
-      # but this caused issues with semaphores. Now we use Sync() which handles
-      # both sync and async calling contexts correctly.
+      # Save original Fiber storage for restoration (preserves parent context for nested swarms)
+      original_fiber_storage = {
+        execution_id: Fiber[:execution_id],
+        swarm_id: Fiber[:swarm_id],
+        parent_swarm_id: Fiber[:parent_swarm_id],
+      }
 
       # Set fiber-local execution context
       # Use ||= to inherit parent's execution_id if one exists (for mini-swarms)
-      # Child fibers (tools, delegations) inherit automatically
       Fiber[:execution_id] ||= generate_execution_id
       Fiber[:swarm_id] = @swarm_id
       Fiber[:parent_swarm_id] = @parent_swarm_id
 
       # Setup logging FIRST if block given (so swarm_start event can be emitted)
-      if has_logging
-        # Force fresh callback array for this execution
-        Fiber[:log_callbacks] = []
-
-        # Register callback to collect logs and forward to user's block
-        LogCollector.on_log do |entry|
-          logs << entry
-          block.call(entry)
-        end
-
-        # Set LogStream to use LogCollector as emitter
-        LogStream.emitter = LogCollector
-      end
+      setup_logging(logs, &block) if has_logging
 
       # Trigger swarm_start hooks (before any execution)
-      # Hook can append stdout to prompt (exit code 0)
-      # Default callback emits swarm_start event to LogStream
-      swarm_start_result = trigger_swarm_start(current_prompt)
-      if swarm_start_result&.replace?
-        # Hook provided stdout to append to prompt
-        current_prompt = "#{current_prompt}\n\n<hook-context>\n#{swarm_start_result.value}\n</hook-context>"
-      end
+      current_prompt = apply_swarm_start_hooks(current_prompt)
 
       # Trigger first_message hooks on first execution
       unless @first_message_sent
@@ -330,294 +313,18 @@ module SwarmSDK
       # Lazy initialization of agents (with optional logging)
       initialize_agents unless @agents_initialized
 
-      # If agents were initialized BEFORE logging was set up (e.g., via restore()),
-      # we need to retroactively set up logging callbacks and emit agent_start events
-      if has_logging && @agents_initialized && !@agent_start_events_emitted
-        # Setup logging callbacks for all agents (they were skipped during initialization)
-        setup_logging_for_all_agents
+      # Emit agent_start events if agents were initialized before logging was set up
+      emit_retroactive_agent_start_events if has_logging
 
-        # Emit agent_start events now that logging is ready
-        emit_agent_start_events
-        @agent_start_events_emitted = true
-      end
-
-      # Implementation differs based on wait parameter
-      # wait: true uses Sync (blocking), wait: false requires existing async context
-      if wait
-        # Blocking execution - use Sync which works from both sync and async contexts
-        # Sync ensures the reactor stays alive until all child tasks complete,
-        # preventing semaphore deadlocks when fibers are blocked
-        @current_task = Sync do |task|
-          start_time = Time.now
-          result = nil
-          swarm_stop_triggered = false
-
-          # Execution loop (supports reprompting)
-          loop do
-            # Create child task for LLM call
-            # Using task.async instead of Async() is more efficient and explicit
-            lead = @agents[@lead_agent]
-            response = task.async(finished: false) do
-              lead.ask(current_prompt)
-            end.wait
-
-            # Check if swarm was finished by a hook (finish_swarm)
-            if response.is_a?(Hash) && response[:__finish_swarm__]
-              result = Result.new(
-                content: response[:message],
-                agent: @lead_agent.to_s,
-                logs: logs,
-                duration: Time.now - start_time,
-              )
-
-              # Trigger swarm_stop hooks for event emission
-              trigger_swarm_stop(result)
-              swarm_stop_triggered = true
-
-              # Break immediately - don't allow reprompting when swarm is finished by hook
-              break
-            end
-
-            result = Result.new(
-              content: response.content,
-              agent: @lead_agent.to_s,
-              logs: logs,
-              duration: Time.now - start_time,
-            )
-
-            # Trigger swarm_stop hooks (for reprompt check and event emission)
-            hook_result = trigger_swarm_stop(result)
-            swarm_stop_triggered = true
-
-            # Check if hook requests reprompting
-            if hook_result&.reprompt?
-              current_prompt = hook_result.value
-              swarm_stop_triggered = false # Will trigger again in next iteration
-              # Continue loop with new prompt
-            else
-              # Exit loop - execution complete
-              break
-            end
-          end
-
-          result
-        rescue ConfigurationError, AgentNotFoundError
-          # Re-raise configuration errors - these should be fixed, not caught
-          raise
-        rescue TypeError => e
-          # Catch the specific "String does not have #dig method" error
-          if e.message.include?("does not have #dig method")
-            agent_definition = @agent_definitions[@lead_agent]
-            error_msg = if agent_definition.base_url
-              "LLM API request failed: The proxy/server at '#{agent_definition.base_url}' returned an invalid response. " \
-                "This usually means the proxy is unreachable, requires authentication, or returned an error in non-JSON format. " \
-                "Original error: #{e.message}"
-            else
-              "LLM API request failed with unexpected response format. Original error: #{e.message}"
-            end
-
-            Result.new(
-              content: nil,
-              agent: @lead_agent.to_s,
-              error: LLMError.new(error_msg),
-              logs: logs,
-              duration: Time.now - start_time,
-            )
-          else
-            Result.new(
-              content: nil,
-              agent: @lead_agent.to_s,
-              error: e,
-              logs: logs,
-              duration: Time.now - start_time,
-            )
-          end
-        rescue StandardError => e
-          Result.new(
-            content: nil,
-            agent: @lead_agent&.to_s || "unknown",
-            error: e,
-            logs: logs,
-            duration: Time.now - start_time,
-          )
-        ensure
-          # ALL CLEANUP happens here (runs on completion OR cancellation)
-          # This ensures cleanup executes whether task completes normally or is stopped via task.stop
-
-          # Trigger swarm_stop if not already triggered (handles error cases)
-          unless swarm_stop_triggered
-            trigger_swarm_stop_final(result, start_time, logs)
-          end
-
-          # Cleanup MCP clients after execution
-          cleanup
-
-          # Only clear Fiber storage if we set up logging (same pattern as LogCollector)
-          # Mini-swarms are called without block, so they don't clear
-          if has_logging
-            Fiber[:execution_id] = nil
-            Fiber[:swarm_id] = nil
-            Fiber[:parent_swarm_id] = nil
-          end
-
-          # Reset logging state for next execution if we set it up
-          #
-          # IMPORTANT: Only reset if we set up logging (has_logging == true).
-          # When this swarm is a mini-swarm within a Workflow,
-          # the workflow manages LogCollector and we don't set up logging.
-          #
-          # Flow in Workflow:
-          # 1. Workflow sets up LogCollector + LogStream (no block given to mini-swarms)
-          # 2. Each mini-swarm executes without logging block (has_logging == false)
-          # 3. Each mini-swarm skips reset (didn't set up logging)
-          # 4. Workflow resets once at the very end
-          #
-          # Flow in standalone swarm / interactive REPL:
-          # 1. Swarm.execute sets up LogCollector + LogStream (block given)
-          # 2. Swarm.execute resets in task's ensure block (cleanup before result available)
-          if has_logging
-            LogCollector.reset!
-            LogStream.reset!
-          end
-        end
-
-        # Clean up parent fiber's storage after Sync completes
-        # The child fiber cleaned up its own storage in ensure block, but parent still has values
-        # This only matters when has_logging == true because mini-swarms don't clear storage
-        # (they rely on orchestrator to clear once at the end)
-        if has_logging
-          Fiber[:execution_id] = nil
-          Fiber[:swarm_id] = nil
-          Fiber[:parent_swarm_id] = nil
-        end
-
-      else
-        # Non-blocking execution - requires existing async context
-        # This allows swarm.execute(..., wait: false) to return a task that can be stopped
-        parent = Async::Task.current
-        raise ConfigurationError, "wait: false requires an async context. Use Sync { swarm.execute(..., wait: false) }" unless parent
-
-        @current_task = parent.async(finished: false) do
-          start_time = Time.now
-          result = nil
-          swarm_stop_triggered = false
-
-          # Execution loop (supports reprompting)
-          loop do
-            # Create child task for LLM call
-            lead = @agents[@lead_agent]
-            response = Async(finished: false) do
-              lead.ask(current_prompt)
-            end.wait
-
-            # Check if swarm was finished by a hook (finish_swarm)
-            if response.is_a?(Hash) && response[:__finish_swarm__]
-              result = Result.new(
-                content: response[:message],
-                agent: @lead_agent.to_s,
-                logs: logs,
-                duration: Time.now - start_time,
-              )
-
-              # Trigger swarm_stop hooks for event emission
-              trigger_swarm_stop(result)
-              swarm_stop_triggered = true
-
-              # Break immediately - don't allow reprompting when swarm is finished by hook
-              break
-            end
-
-            result = Result.new(
-              content: response.content,
-              agent: @lead_agent.to_s,
-              logs: logs,
-              duration: Time.now - start_time,
-            )
-
-            # Trigger swarm_stop hooks (for reprompt check and event emission)
-            hook_result = trigger_swarm_stop(result)
-            swarm_stop_triggered = true
-
-            # Check if hook requests reprompting
-            if hook_result&.reprompt?
-              current_prompt = hook_result.value
-              swarm_stop_triggered = false # Will trigger again in next iteration
-              # Continue loop with new prompt
-            else
-              # Exit loop - execution complete
-              break
-            end
-          end
-
-          result
-        rescue ConfigurationError, AgentNotFoundError
-          # Re-raise configuration errors - these should be fixed, not caught
-          raise
-        rescue TypeError => e
-          # Catch the specific "String does not have #dig method" error
-          if e.message.include?("does not have #dig method")
-            agent_definition = @agent_definitions[@lead_agent]
-            error_msg = if agent_definition.base_url
-              "LLM API request failed: The proxy/server at '#{agent_definition.base_url}' returned an invalid response. " \
-                "This usually means the proxy is unreachable, requires authentication, or returned an error in non-JSON format. " \
-                "Original error: #{e.message}"
-            else
-              "LLM API request failed with unexpected response format. Original error: #{e.message}"
-            end
-
-            Result.new(
-              content: nil,
-              agent: @lead_agent.to_s,
-              error: LLMError.new(error_msg),
-              logs: logs,
-              duration: Time.now - start_time,
-            )
-          else
-            Result.new(
-              content: nil,
-              agent: @lead_agent.to_s,
-              error: e,
-              logs: logs,
-              duration: Time.now - start_time,
-            )
-          end
-        rescue StandardError => e
-          Result.new(
-            content: nil,
-            agent: @lead_agent&.to_s || "unknown",
-            error: e,
-            logs: logs,
-            duration: Time.now - start_time,
-          )
-        ensure
-          # ALL CLEANUP happens here (runs on completion OR cancellation)
-          # This ensures cleanup executes whether task completes normally or is stopped via task.stop
-
-          # Trigger swarm_stop if not already triggered (handles error cases)
-          unless swarm_stop_triggered
-            trigger_swarm_stop_final(result, start_time, logs)
-          end
-
-          # Cleanup MCP clients after execution
-          cleanup
-
-          # Only clear Fiber storage if we set up logging (same pattern as LogCollector)
-          # Mini-swarms are called without block, so they don't clear
-          if has_logging
-            Fiber[:execution_id] = nil
-            Fiber[:swarm_id] = nil
-            Fiber[:parent_swarm_id] = nil
-          end
-
-          # Reset logging state for next execution if we set it up
-          if has_logging
-            LogCollector.reset!
-            LogStream.reset!
-          end
-        end
-
-      end
-      @current_task
+      # Delegate to Executor for actual execution
+      executor = Executor.new(self)
+      @current_task = executor.run(
+        current_prompt,
+        wait: wait,
+        logs: logs,
+        has_logging: has_logging,
+        original_fiber_storage: original_fiber_storage,
+      )
     end
 
     # Get an agent chat instance by name
@@ -800,7 +507,130 @@ module SwarmSDK
     # @return [void]
     attr_writer :swarm_registry
 
+    # --- Internal API (for Executor use only) ---
+
+    # Trigger swarm_stop hooks for reprompt check and event emission
+    #
+    # @!visibility private
+    # @param result [Result] The execution result
+    # @return [Hooks::Result, nil] Hook result (reprompt action if applicable)
+    def trigger_swarm_stop(result)
+      context = Hooks::Context.new(
+        event: :swarm_stop,
+        agent_name: @lead_agent.to_s,
+        swarm: self,
+        metadata: {
+          swarm_name: @name,
+          lead_agent: @lead_agent,
+          last_agent: result.agent,
+          content: result.content,
+          success: result.success?,
+          duration: result.duration,
+          total_cost: result.total_cost,
+          total_tokens: result.total_tokens,
+          agents_involved: result.agents_involved,
+          result: result,
+          timestamp: Time.now.utc.iso8601,
+        },
+      )
+
+      executor = Hooks::Executor.new(@hook_registry, logger: RubyLLM.logger)
+      hook_result = executor.execute_safe(event: :swarm_stop, context: context, callbacks: [])
+
+      hook_result
+    rescue StandardError => e
+      RubyLLM.logger.error("SwarmSDK: Error in swarm_stop hook: #{e.message}")
+      nil
+    end
+
+    # Trigger swarm_stop for final event emission (called in ensure block)
+    #
+    # @!visibility private
+    # @param result [Result, nil] Execution result
+    # @param start_time [Time] Execution start time
+    # @param logs [Array] Collected logs
+    # @return [void]
+    def trigger_swarm_stop_final(result, start_time, logs)
+      result ||= Result.new(
+        content: nil,
+        agent: @lead_agent&.to_s || "unknown",
+        logs: logs,
+        duration: Time.now - start_time,
+        error: StandardError.new("Unknown error"),
+      )
+
+      context = Hooks::Context.new(
+        event: :swarm_stop,
+        agent_name: @lead_agent.to_s,
+        swarm: self,
+        metadata: {
+          swarm_name: @name,
+          lead_agent: @lead_agent,
+          last_agent: result.agent,
+          content: result.content,
+          success: result.success?,
+          duration: result.duration,
+          total_cost: result.total_cost,
+          total_tokens: result.total_tokens,
+          agents_involved: result.agents_involved,
+          result: result,
+          timestamp: Time.now.utc.iso8601,
+        },
+      )
+
+      executor = Hooks::Executor.new(@hook_registry, logger: RubyLLM.logger)
+      executor.execute_safe(event: :swarm_stop, context: context, callbacks: [])
+    rescue StandardError => e
+      RubyLLM.logger.error("SwarmSDK: Error in swarm_stop final emission: #{e.message}")
+    end
+
     private
+
+    # Setup logging for execution
+    #
+    # @param logs [Array] Log collection array
+    # @yield [entry] Block to forward log entries to
+    # @return [void]
+    def setup_logging(logs)
+      # Force fresh callback array for this execution
+      Fiber[:log_callbacks] = []
+
+      # Register callback to collect logs and forward to user's block
+      LogCollector.on_log do |entry|
+        logs << entry
+        yield(entry) if block_given?
+      end
+
+      # Set LogStream to use LogCollector as emitter
+      LogStream.emitter = LogCollector
+    end
+
+    # Apply swarm_start hooks to prompt
+    #
+    # @param prompt [String] Original prompt
+    # @return [String] Modified prompt (possibly with hook context appended)
+    def apply_swarm_start_hooks(prompt)
+      swarm_start_result = trigger_swarm_start(prompt)
+      if swarm_start_result&.replace?
+        "#{prompt}\n\n<hook-context>\n#{swarm_start_result.value}\n</hook-context>"
+      else
+        prompt
+      end
+    end
+
+    # Emit agent_start events retroactively if needed
+    #
+    # If agents were initialized BEFORE logging was set up (e.g., via restore()),
+    # we need to retroactively set up logging callbacks and emit agent_start events.
+    #
+    # @return [void]
+    def emit_retroactive_agent_start_events
+      return if !@agents_initialized || @agent_start_events_emitted
+
+      setup_logging_for_all_agents
+      emit_agent_start_events
+      @agent_start_events_emitted = true
+    end
 
     # Validate and normalize scratchpad mode for Swarm
     #
@@ -1235,88 +1065,6 @@ module SwarmSDK
     rescue StandardError => e
       RubyLLM.logger.error("SwarmSDK: Error in swarm_start hook: #{e.message}")
       raise
-    end
-
-    # Trigger swarm_stop for final event emission (called in ensure block)
-    #
-    # This ALWAYS emits the swarm_stop event, even if there was an error.
-    # It does NOT check for reprompt (that's done in trigger_swarm_stop_for_reprompt_check).
-    #
-    # @param result [Result, nil] Execution result (may be nil if exception before result created)
-    # @param start_time [Time] Execution start time
-    # @param logs [Array] Collected logs
-    # @return [void]
-    def trigger_swarm_stop_final(result, start_time, logs)
-      # Create a minimal result if one doesn't exist (exception before result created)
-      result ||= Result.new(
-        content: nil,
-        agent: @lead_agent&.to_s || "unknown",
-        logs: logs,
-        duration: Time.now - start_time,
-        error: StandardError.new("Unknown error"),
-      )
-
-      context = Hooks::Context.new(
-        event: :swarm_stop,
-        agent_name: @lead_agent.to_s,
-        swarm: self,
-        metadata: {
-          swarm_name: @name,
-          lead_agent: @lead_agent,
-          last_agent: result.agent, # Agent that produced the final response
-          content: result.content, # Final response content
-          success: result.success?,
-          duration: result.duration,
-          total_cost: result.total_cost,
-          total_tokens: result.total_tokens,
-          agents_involved: result.agents_involved,
-          result: result,
-          timestamp: Time.now.utc.iso8601,
-        },
-      )
-
-      executor = Hooks::Executor.new(@hook_registry, logger: RubyLLM.logger)
-      executor.execute_safe(event: :swarm_stop, context: context, callbacks: [])
-    rescue StandardError => e
-      # Don't let swarm_stop errors break the ensure block
-      RubyLLM.logger.error("SwarmSDK: Error in swarm_stop final emission: #{e.message}")
-    end
-
-    # Trigger swarm_stop hooks for reprompt check and event emission
-    #
-    # This is called in the normal execution flow to check if hooks request reprompting.
-    # The default callback also emits the swarm_stop event to LogStream.
-    #
-    # @param result [Result] The execution result
-    # @return [Hooks::Result, nil] Hook result (reprompt action if applicable)
-    def trigger_swarm_stop(result)
-      context = Hooks::Context.new(
-        event: :swarm_stop,
-        agent_name: @lead_agent.to_s,
-        swarm: self,
-        metadata: {
-          swarm_name: @name,
-          lead_agent: @lead_agent,
-          last_agent: result.agent, # Agent that produced the final response
-          content: result.content, # Final response content
-          success: result.success?,
-          duration: result.duration,
-          total_cost: result.total_cost,
-          total_tokens: result.total_tokens,
-          agents_involved: result.agents_involved,
-          result: result, # Include full result for hook access
-          timestamp: Time.now.utc.iso8601,
-        },
-      )
-
-      executor = Hooks::Executor.new(@hook_registry, logger: RubyLLM.logger)
-      hook_result = executor.execute_safe(event: :swarm_stop, context: context, callbacks: [])
-
-      # Return hook result so caller can handle reprompt
-      hook_result
-    rescue StandardError => e
-      RubyLLM.logger.error("SwarmSDK: Error in swarm_stop hook: #{e.message}")
-      nil
     end
 
     # Trigger first_message hooks when first user message is sent
