@@ -20,8 +20,9 @@ module SwarmSDK
   class Workflow
     attr_reader :swarm_name, :nodes, :start_node, :agent_definitions, :scratchpad
     attr_reader :agents, :delegation_instances, :swarm_id, :parent_swarm_id, :mcp_clients
+    attr_reader :execution_order
     attr_writer :swarm_id, :config_for_hooks
-    attr_accessor :swarm_registry_config
+    attr_accessor :swarm_registry_config, :original_prompt
 
     def initialize(swarm_name:, agent_definitions:, nodes:, start_node:, swarm_id: nil, scratchpad: :enabled, allow_filesystem_tools: nil)
       @swarm_name = swarm_name
@@ -162,198 +163,7 @@ module SwarmSDK
     # @yield [Hash] Log entry if block given (for streaming)
     # @return [Result] Final result from last node execution
     def execute(prompt, &block)
-      logs = []
-      current_input = prompt
-      results = {}
-      @original_prompt = prompt # Store original prompt for NodeContext
-
-      # Set fiber-local execution context for entire workflow
-      Fiber[:execution_id] = generate_execution_id
-
-      # Setup logging if block given
-      if block_given?
-        # Register callback to collect logs and forward to user's block
-        LogCollector.on_log do |entry|
-          logs << entry
-          block.call(entry)
-        end
-
-        # Set LogStream to use LogCollector as emitter
-        LogStream.emitter = LogCollector
-      end
-
-      # Dynamic execution with support for goto_node
-      execution_index = 0
-      last_result = nil
-
-      while execution_index < @execution_order.size
-        node_name = @execution_order[execution_index]
-        node = @nodes[node_name]
-        node_start_time = Time.now
-
-        # Set node-specific swarm_id in fiber storage
-        # Mini-swarms will use ||= to inherit execution_id
-        node_swarm_id = @swarm_id ? "#{@swarm_id}/node:#{node_name}" : nil
-        Fiber[:swarm_id] = node_swarm_id
-        Fiber[:parent_swarm_id] = @swarm_id
-
-        # Emit node_start event
-        emit_node_start(node_name, node)
-
-        # Transform input if node has transformer (Ruby block or bash command)
-        skip_execution = false
-        skip_content = nil
-
-        if node.has_input_transformer?
-          # Build NodeContext based on dependencies
-          #
-          # For single dependency: previous_result has original Result metadata,
-          #                       transformed_content has output from previous transformer
-          # For multiple dependencies: previous_result is hash of Results
-          # For no dependencies: previous_result is initial prompt string
-          previous_result = if node.dependencies.size > 1
-            # Multiple dependencies: pass hash of original results
-            node.dependencies.to_h { |dep| [dep, results[dep]] }
-          elsif node.dependencies.size == 1
-            # Single dependency: pass the original result
-            results[node.dependencies.first]
-          else
-            # No dependencies: initial prompt
-            current_input
-          end
-
-          # Create NodeContext for input transformer
-          input_context = NodeContext.for_input(
-            previous_result: previous_result,
-            all_results: results,
-            original_prompt: @original_prompt,
-            node_name: node_name,
-            dependencies: node.dependencies,
-            transformed_content: node.dependencies.size == 1 ? current_input : nil,
-          )
-
-          # Apply input transformer (passes current_input for bash command fallback)
-          # Bash transformer exit codes:
-          # - Exit 0: Use STDOUT as transformed content
-          # - Exit 1: Skip node execution, use current_input unchanged (STDOUT ignored)
-          # - Exit 2: Halt workflow with error from STDERR (STDOUT ignored)
-          transformed = node.transform_input(input_context, current_input: current_input)
-
-          # Check for control flow from transformer
-          control_result = handle_transformer_control_flow(
-            transformed: transformed,
-            node_name: node_name,
-            node: node,
-            node_start_time: node_start_time,
-          )
-
-          case control_result[:action]
-          when :halt
-            return control_result[:result]
-          when :goto
-            execution_index = find_node_index(control_result[:target])
-            current_input = control_result[:content]
-            next
-          when :skip
-            skip_execution = true
-            skip_content = control_result[:content]
-          when :continue
-            current_input = control_result[:content]
-          end
-        end
-
-        # Execute node (or skip if requested)
-        if skip_execution
-          # Skip execution: return result immediately with provided content
-          result = Result.new(
-            content: skip_content,
-            agent: "skipped:#{node_name}",
-            logs: [],
-            duration: 0.0,
-          )
-        elsif node.agent_less?
-          # Agent-less node: run pure computation without LLM
-          result = execute_agent_less_node(node, current_input)
-        else
-          # Normal node: build mini-swarm and execute with LLM
-          # NOTE: Don't pass block to mini-swarm - LogCollector already captures all logs
-          mini_swarm = build_swarm_for_node(node)
-          result = mini_swarm.execute(current_input)
-
-          # Cache agent instances for context preservation
-          cache_agent_instances(mini_swarm, node)
-
-          # If result has error, log it with backtrace
-          if result.error
-            RubyLLM.logger.error("Workflow: Node '#{node_name}' failed: #{result.error.message}")
-            RubyLLM.logger.error("  Backtrace: #{result.error.backtrace&.first(5)&.join("\n  ")}")
-          end
-        end
-
-        results[node_name] = result
-        last_result = result
-
-        # Transform output for next node using NodeContext
-        output_context = NodeContext.for_output(
-          result: result,
-          all_results: results,
-          original_prompt: @original_prompt,
-          node_name: node_name,
-        )
-        transformed_output = node.transform_output(output_context)
-
-        # Check for control flow from output transformer
-        control_result = handle_output_transformer_control_flow(
-          transformed: transformed_output,
-          node_name: node_name,
-          node: node,
-          node_start_time: node_start_time,
-          skip_execution: skip_execution,
-          result: result,
-        )
-
-        case control_result[:action]
-        when :halt
-          return control_result[:result]
-        when :goto
-          execution_index = find_node_index(control_result[:target])
-          current_input = control_result[:content]
-          emit_node_stop(node_name, node, result, Time.now - node_start_time, skip_execution)
-          next
-        when :continue
-          current_input = control_result[:content]
-        end
-
-        # For agent-less nodes, update the result with transformed content
-        # This ensures all_results contains the actual output, not the input
-        if node.agent_less? && current_input != result.content
-          results[node_name] = Result.new(
-            content: current_input,
-            agent: result.agent,
-            logs: result.logs,
-            duration: result.duration,
-            error: result.error,
-          )
-          last_result = results[node_name]
-        end
-
-        # Emit node_stop event
-        node_duration = Time.now - node_start_time
-        emit_node_stop(node_name, node, result, node_duration, skip_execution)
-
-        execution_index += 1
-      end
-
-      last_result
-    ensure
-      # Workflow always clears (always sets up logging)
-      Fiber[:execution_id] = nil
-      Fiber[:swarm_id] = nil
-      Fiber[:parent_swarm_id] = nil
-
-      # Reset logging state for next execution
-      LogCollector.reset!
-      LogStream.reset!
+      Executor.new(self).run(prompt, &block)
     end
 
     # Create snapshot of current workflow state
@@ -420,128 +230,6 @@ module SwarmSDK
       StateRestorer.new(self, snapshot, preserve_system_prompts: preserve_system_prompts).restore
     end
 
-    private
-
-    # Generate a unique execution ID for workflow
-    #
-    # Creates an execution ID that uniquely identifies a single workflow.execute() call.
-    # Format: "exec_workflow_{random_hex}"
-    #
-    # @return [String] Generated execution ID (e.g., "exec_workflow_a3f2b1c8")
-    def generate_swarm_id(name)
-      sanitized = name.to_s.gsub(/[^a-z0-9_-]/i, "_").downcase
-      "#{sanitized}_#{SecureRandom.hex(4)}"
-    end
-
-    def generate_execution_id
-      "exec_workflow_#{SecureRandom.hex(8)}"
-    end
-
-    # Emit node_start event
-    #
-    # @param node_name [Symbol] Name of the node
-    # @param node [Workflow::NodeBuilder] Node configuration
-    # @return [void]
-    def emit_node_start(node_name, node)
-      return unless LogStream.emitter
-
-      LogStream.emit(
-        type: "node_start",
-        node: node_name.to_s,
-        agent_less: node.agent_less?,
-        agents: node.agent_configs.map { |ac| ac[:agent].to_s },
-        dependencies: node.dependencies.map(&:to_s),
-        timestamp: Time.now.utc.iso8601,
-      )
-    end
-
-    # Emit node_stop event
-    #
-    # @param node_name [Symbol] Name of the node
-    # @param node [Workflow::NodeBuilder] Node configuration
-    # @param result [Result] Node execution result
-    # @param duration [Float] Node execution duration in seconds
-    # @param skipped [Boolean] Whether execution was skipped
-    # @return [void]
-    def emit_node_stop(node_name, node, result, duration, skipped)
-      return unless LogStream.emitter
-
-      LogStream.emit(
-        type: "node_stop",
-        node: node_name.to_s,
-        agent_less: node.agent_less?,
-        skipped: skipped,
-        agents: node.agent_configs.map { |ac| ac[:agent].to_s },
-        duration: duration.round(3),
-        timestamp: Time.now.utc.iso8601,
-      )
-    end
-
-    # Execute an agent-less (computation-only) node
-    #
-    # Agent-less nodes run pure Ruby code without LLM execution.
-    # Creates a minimal Result object with the transformed content.
-    #
-    # @param node [Workflow::NodeBuilder] Agent-less node configuration
-    # @param input [String] Input content
-    # @return [Result] Result with transformed content
-    def execute_agent_less_node(node, input)
-      # For agent-less nodes, the "content" is just the input passed through
-      # The output transformer will do the actual work
-      Result.new(
-        content: input,
-        agent: "computation:#{node.name}",
-        logs: [],
-        duration: 0.0,
-      )
-    end
-
-    # Validate workflow configuration
-    #
-    # @return [void]
-    # @raise [ConfigurationError] If configuration is invalid
-    def validate!
-      # Validate start_node exists
-      unless @nodes.key?(@start_node)
-        raise ConfigurationError,
-          "start_node '#{@start_node}' not found. Available nodes: #{@nodes.keys.join(", ")}"
-      end
-
-      # Validate all nodes
-      @nodes.each_value(&:validate!)
-
-      # Validate node dependencies reference existing nodes
-      @nodes.each do |node_name, node|
-        node.dependencies.each do |dep|
-          unless @nodes.key?(dep)
-            raise ConfigurationError,
-              "Node '#{node_name}' depends on unknown node '#{dep}'"
-          end
-        end
-      end
-
-      # Validate all agents referenced in nodes exist (skip agent-less nodes)
-      @nodes.each do |node_name, node|
-        next if node.agent_less? # Skip validation for agent-less nodes
-
-        node.agent_configs.each do |config|
-          agent_name = config[:agent]
-          unless @agent_definitions.key?(agent_name)
-            raise ConfigurationError,
-              "Node '#{node_name}' references undefined agent '#{agent_name}'"
-          end
-
-          # Validate delegation targets exist
-          config[:delegates_to].each do |delegate|
-            unless @agent_definitions.key?(delegate)
-              raise ConfigurationError,
-                "Node '#{node_name}' agent '#{agent_name}' delegates to undefined agent '#{delegate}'"
-            end
-          end
-        end
-      end
-    end
-
     # Build a swarm instance for a specific node
     #
     # Creates a new Swarm with only the agents specified in the node,
@@ -601,6 +289,100 @@ module SwarmSDK
       inject_cached_agents(swarm, node)
 
       swarm
+    end
+
+    # Cache agent instances from a swarm for potential reuse
+    #
+    # Only caches agents that have reset_context: false in this node.
+    # This allows preserving conversation history across nodes.
+    #
+    # @param swarm [Swarm] Swarm instance that just executed
+    # @param node [Workflow::Builder] Node configuration
+    # @return [void]
+    def cache_agent_instances(swarm, node)
+      return unless swarm.agents
+
+      node.agent_configs.each do |config|
+        agent_name = config[:agent]
+        reset_context = config[:reset_context]
+
+        # Only cache if reset_context: false
+        next if reset_context
+
+        # Cache primary agent
+        agent_instance = swarm.agents[agent_name]
+        @agents[agent_name] = agent_instance if agent_instance
+
+        # Cache delegation instances atomically (together with primary)
+        agent_def = @agent_definitions[agent_name]
+        agent_def.delegates_to.each do |delegate_name|
+          delegation_key = "#{delegate_name}@#{agent_name}"
+          delegation_instance = swarm.delegation_instances[delegation_key]
+
+          if delegation_instance
+            @delegation_instances[delegation_key] = delegation_instance
+          end
+        end
+      end
+    end
+
+    private
+
+    # Generate a unique execution ID for workflow
+    #
+    # Creates an execution ID that uniquely identifies a single workflow.execute() call.
+    # Format: "exec_workflow_{random_hex}"
+    #
+    # @return [String] Generated execution ID (e.g., "exec_workflow_a3f2b1c8")
+    def generate_swarm_id(name)
+      sanitized = name.to_s.gsub(/[^a-z0-9_-]/i, "_").downcase
+      "#{sanitized}_#{SecureRandom.hex(4)}"
+    end
+
+    # Validate workflow configuration
+    #
+    # @return [void]
+    # @raise [ConfigurationError] If configuration is invalid
+    def validate!
+      # Validate start_node exists
+      unless @nodes.key?(@start_node)
+        raise ConfigurationError,
+          "start_node '#{@start_node}' not found. Available nodes: #{@nodes.keys.join(", ")}"
+      end
+
+      # Validate all nodes
+      @nodes.each_value(&:validate!)
+
+      # Validate node dependencies reference existing nodes
+      @nodes.each do |node_name, node|
+        node.dependencies.each do |dep|
+          unless @nodes.key?(dep)
+            raise ConfigurationError,
+              "Node '#{node_name}' depends on unknown node '#{dep}'"
+          end
+        end
+      end
+
+      # Validate all agents referenced in nodes exist (skip agent-less nodes)
+      @nodes.each do |node_name, node|
+        next if node.agent_less? # Skip validation for agent-less nodes
+
+        node.agent_configs.each do |config|
+          agent_name = config[:agent]
+          unless @agent_definitions.key?(agent_name)
+            raise ConfigurationError,
+              "Node '#{node_name}' references undefined agent '#{agent_name}'"
+          end
+
+          # Validate delegation targets exist
+          config[:delegates_to].each do |delegate|
+            unless @agent_definitions.key?(delegate)
+              raise ConfigurationError,
+                "Node '#{node_name}' agent '#{agent_name}' delegates to undefined agent '#{delegate}'"
+            end
+          end
+        end
+      end
     end
 
     # Clone an agent definition with node-specific overrides
@@ -680,120 +462,6 @@ module SwarmSDK
       end
 
       order
-    end
-
-    # Handle control flow from input transformer
-    #
-    # @param transformed [String, Hash] Result from transformer
-    # @param node_name [Symbol] Current node name
-    # @param node [Workflow::NodeBuilder] Node configuration
-    # @param node_start_time [Time] Node execution start time
-    # @return [Hash] Control result with :action and relevant data
-    def handle_transformer_control_flow(transformed:, node_name:, node:, node_start_time:)
-      return { action: :continue, content: transformed } unless transformed.is_a?(Hash)
-
-      if transformed[:halt_workflow]
-        # Halt entire workflow
-        halt_result = Result.new(
-          content: transformed[:content],
-          agent: "halted:#{node_name}",
-          logs: [],
-          duration: Time.now - node_start_time,
-        )
-        emit_node_stop(node_name, node, halt_result, Time.now - node_start_time, false)
-        { action: :halt, result: halt_result }
-      elsif transformed[:goto_node]
-        # Jump to different node
-        { action: :goto, target: transformed[:goto_node], content: transformed[:content] }
-      elsif transformed[:skip_execution]
-        # Skip node execution
-        { action: :skip, content: transformed[:content] }
-      else
-        # No control flow - continue normally
-        { action: :continue, content: transformed[:content] }
-      end
-    end
-
-    # Handle control flow from output transformer
-    #
-    # @param transformed [String, Hash] Result from transformer
-    # @param node_name [Symbol] Current node name
-    # @param node [Workflow::NodeBuilder] Node configuration
-    # @param node_start_time [Time] Node execution start time
-    # @param skip_execution [Boolean] Whether node execution was skipped
-    # @param result [Result] Node execution result
-    # @return [Hash] Control result with :action and relevant data
-    def handle_output_transformer_control_flow(transformed:, node_name:, node:, node_start_time:, skip_execution:, result:)
-      # If not a hash, it's just transformed content - continue normally
-      return { action: :continue, content: transformed } unless transformed.is_a?(Hash)
-
-      if transformed[:halt_workflow]
-        # Halt entire workflow
-        halt_result = Result.new(
-          content: transformed[:content],
-          agent: result.agent,
-          logs: result.logs,
-          duration: result.duration,
-        )
-        emit_node_stop(node_name, node, halt_result, Time.now - node_start_time, skip_execution)
-        { action: :halt, result: halt_result }
-      elsif transformed[:goto_node]
-        # Jump to different node
-        { action: :goto, target: transformed[:goto_node], content: transformed[:content] }
-      else
-        # Hash without control flow keys - treat as regular hash with :content key
-        # This handles the case where transformer returns a hash that's not for control flow
-        { action: :continue, content: transformed[:content] || transformed }
-      end
-    end
-
-    # Find the index of a node in the execution order
-    #
-    # @param node_name [Symbol] Node name to find
-    # @return [Integer] Index in execution order
-    # @raise [ConfigurationError] If node not found
-    def find_node_index(node_name)
-      index = @execution_order.index(node_name)
-      unless index
-        raise ConfigurationError,
-          "goto_node target '#{node_name}' not found. Available nodes: #{@execution_order.join(", ")}"
-      end
-      index
-    end
-
-    # Cache agent instances from a swarm for potential reuse
-    #
-    # Only caches agents that have reset_context: false in this node.
-    # This allows preserving conversation history across nodes.
-    #
-    # @param swarm [Swarm] Swarm instance that just executed
-    # @param node [Workflow::Builder] Node configuration
-    # @return [void]
-    def cache_agent_instances(swarm, node)
-      return unless swarm.agents
-
-      node.agent_configs.each do |config|
-        agent_name = config[:agent]
-        reset_context = config[:reset_context]
-
-        # Only cache if reset_context: false
-        next if reset_context
-
-        # Cache primary agent
-        agent_instance = swarm.agents[agent_name]
-        @agents[agent_name] = agent_instance if agent_instance
-
-        # Cache delegation instances atomically (together with primary)
-        agent_def = @agent_definitions[agent_name]
-        agent_def.delegates_to.each do |delegate_name|
-          delegation_key = "#{delegate_name}@#{agent_name}"
-          delegation_instance = swarm.delegation_instances[delegation_key]
-
-          if delegation_instance
-            @delegation_instances[delegation_key] = delegation_instance
-          end
-        end
-      end
     end
 
     # Inject cached agent instances into a swarm
