@@ -319,16 +319,15 @@ module SwarmSDK
         tokens_before = @chat.cumulative_total_tokens
 
         # Get compressed messages from ContextManager
-        compressed = @chat.context_manager.auto_compress_on_threshold(@chat.internal_messages, keep_recent: 10)
+        compressed = @chat.context_manager.auto_compress_on_threshold(@chat.messages, keep_recent: 10)
 
         # Count how many messages were actually compressed
         messages_compressed = compressed.count do |msg|
           msg.content.to_s.include?("[truncated for context management]")
         end
 
-        # Replace messages array with compressed version
-        @chat.internal_messages.clear
-        compressed.each { |msg| @chat.internal_messages << msg }
+        # Replace messages using proper abstraction
+        @chat.replace_messages(compressed)
 
         # Log compression event
         LogStream.emit(

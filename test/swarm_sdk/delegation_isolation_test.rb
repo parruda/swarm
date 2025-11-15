@@ -72,10 +72,10 @@ module SwarmSDK
 
       # Verify both have system message only (no user messages yet - separate conversations)
       # System message is added during initialization
-      assert_equal(1, frontend_tester.internal_messages.size, "Frontend's tester should have only system message")
-      assert_equal(1, backend_tester.internal_messages.size, "Backend's tester should have only system message")
-      assert_equal(:system, frontend_tester.internal_messages.first.role)
-      assert_equal(:system, backend_tester.internal_messages.first.role)
+      assert_equal(1, frontend_tester.messages.size, "Frontend's tester should have only system message")
+      assert_equal(1, backend_tester.messages.size, "Backend's tester should have only system message")
+      assert_equal(:system, frontend_tester.messages.first.role)
+      assert_equal(:system, backend_tester.messages.first.role)
     end
 
     # Test: Shared mode uses same instance for all delegators
@@ -125,8 +125,8 @@ module SwarmSDK
       frontend_agent = swarm.agent(:frontend)
       backend_agent = swarm.agent(:backend)
 
-      frontend_db_tool = frontend_agent.internal_tools[:WorkWithDatabase]
-      backend_db_tool = backend_agent.internal_tools[:WorkWithDatabase]
+      frontend_db_tool = frontend_agent.tools[:WorkWithDatabase]
+      backend_db_tool = backend_agent.tools[:WorkWithDatabase]
 
       assert(frontend_db_tool, "Frontend should have database delegation tool")
       assert(backend_db_tool, "Backend should have database delegation tool")
@@ -139,7 +139,7 @@ module SwarmSDK
       # System message + user message = 2 total
       assert_equal(
         2,
-        primary_database.internal_messages.size,
+        primary_database.messages.size,
         "Primary database should have system + user message",
       )
 
@@ -188,12 +188,12 @@ module SwarmSDK
       backend_tester.add_message(role: :user, content: "Backend question")
 
       # Verify separate histories (system message + user message = 2 total)
-      assert_equal(2, frontend_tester.internal_messages.size)
-      assert_equal(2, backend_tester.internal_messages.size)
+      assert_equal(2, frontend_tester.messages.size)
+      assert_equal(2, backend_tester.messages.size)
 
       # Check the user messages (second message, index 1)
-      assert_equal("Frontend question", frontend_tester.internal_messages[1].content)
-      assert_equal("Backend question", backend_tester.internal_messages[1].content)
+      assert_equal("Frontend question", frontend_tester.messages[1].content)
+      assert_equal("Backend question", backend_tester.messages[1].content)
     end
 
     # Test: Agent name validation (no '@' allowed)
@@ -449,8 +449,8 @@ module SwarmSDK
       frontend_tester = swarm.delegation_instances["tester@frontend"]
       backend_tester = swarm.delegation_instances["tester@backend"]
 
-      frontend_db_tool = frontend_tester.internal_tools[:WorkWithDatabase]
-      backend_db_tool = backend_tester.internal_tools[:WorkWithDatabase]
+      frontend_db_tool = frontend_tester.tools[:WorkWithDatabase]
+      backend_db_tool = backend_tester.tools[:WorkWithDatabase]
 
       assert(frontend_db_tool, "Frontend's tester should have database tool")
       assert(backend_db_tool, "Backend's tester should have database tool")
@@ -466,7 +466,7 @@ module SwarmSDK
       # System message + user message = 2 total
       assert_equal(
         2,
-        primary_database.internal_messages.size,
+        primary_database.messages.size,
         "Shared database should have system + user message",
       )
     end
@@ -514,11 +514,11 @@ module SwarmSDK
 
       # Messages should be in order (semaphore prevents corruption)
       # System message + 3 user messages = 4 total
-      assert_equal(4, database.internal_messages.size)
-      assert_equal(:system, database.internal_messages[0].role)
-      assert_equal("Message 1", database.internal_messages[1].content)
-      assert_equal("Message 2", database.internal_messages[2].content)
-      assert_equal("Message 3", database.internal_messages[3].content)
+      assert_equal(4, database.messages.size)
+      assert_equal(:system, database.messages[0].role)
+      assert_equal("Message 1", database.messages[1].content)
+      assert_equal("Message 2", database.messages[2].content)
+      assert_equal("Message 3", database.messages[3].content)
     end
   end
 end

@@ -1202,10 +1202,15 @@ module SwarmSDK
 
     class MockAgentChat
       attr_reader :messages
-      alias_method :internal_messages, :messages
 
       def initialize
         @messages = []
+      end
+
+      def replace_messages(new_messages)
+        @messages.clear
+        new_messages.each { |msg| @messages << msg }
+        self
       end
 
       def configure_system_prompt(prompt)
@@ -1247,10 +1252,15 @@ module SwarmSDK
 
     class MockDelegationChat
       attr_reader :messages
-      alias_method :internal_messages, :messages
 
       def initialize
         @messages = []
+      end
+
+      def replace_messages(new_messages)
+        @messages.clear
+        new_messages.each { |msg| @messages << msg }
+        self
       end
 
       def configure_system_prompt(prompt)

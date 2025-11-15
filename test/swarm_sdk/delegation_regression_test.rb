@@ -186,7 +186,7 @@ module SwarmSDK
 
       # Verify scratchpad is shared (same storage object)
       # We can test this behaviorally by writing from one instance and reading from another
-      backend_instance.internal_tools[:ScratchpadWrite].execute(
+      backend_instance.tools[:ScratchpadWrite].execute(
         file_path: "test/note",
         content: "Test content",
         title: "Test",
@@ -194,7 +194,7 @@ module SwarmSDK
 
       # Primary backend should see the same scratchpad entry (it's the same instance)
       primary_backend = swarm.agent(:backend)
-      list_result = primary_backend.internal_tools[:ScratchpadList].execute
+      list_result = primary_backend.tools[:ScratchpadList].execute
 
       assert_includes(list_result, "test/note", "Scratchpad should be shared")
     end

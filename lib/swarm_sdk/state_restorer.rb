@@ -218,10 +218,6 @@ module SwarmSDK
     # @param snapshot_data [Hash] Snapshot data for this agent
     # @return [void]
     def restore_agent_conversation(agent_chat, agent_name, snapshot_data)
-      # Clear existing messages FIRST
-      messages = agent_chat.internal_messages
-      messages.clear
-
       # Determine which system prompt to use
       system_prompt = if @preserve_system_prompts
         snapshot_data[:system_prompt] || snapshot_data["system_prompt"]
@@ -230,15 +226,21 @@ module SwarmSDK
         agent_definition&.system_prompt
       end
 
-      # Apply system prompt as system message
-      agent_chat.configure_system_prompt(system_prompt) if system_prompt
+      # Build complete message list including system message
+      all_messages = []
 
-      # Restore conversation messages
-      conversation = snapshot_data[:conversation] || snapshot_data["conversation"]
-      conversation.each do |msg_data|
-        message = deserialize_message(msg_data)
-        messages << message
+      # Add system message first if we have a system prompt
+      if system_prompt
+        all_messages << RubyLLM::Message.new(role: :system, content: system_prompt)
       end
+
+      # Add conversation messages
+      conversation = snapshot_data[:conversation] || snapshot_data["conversation"]
+      restored_messages = conversation.map { |msg_data| deserialize_message(msg_data) }
+      all_messages.concat(restored_messages)
+
+      # Replace all messages using proper abstraction
+      agent_chat.replace_messages(all_messages)
 
       # Restore context state
       context_state = snapshot_data[:context_state] || snapshot_data["context_state"]
@@ -348,10 +350,6 @@ module SwarmSDK
     # @param snapshot_data [Hash] Snapshot data
     # @return [void]
     def restore_delegation_conversation(delegation_chat, base_name, snapshot_data)
-      # Clear existing messages
-      messages = delegation_chat.internal_messages
-      messages.clear
-
       # Determine which system prompt to use
       system_prompt = if @preserve_system_prompts
         snapshot_data[:system_prompt] || snapshot_data["system_prompt"]
@@ -360,15 +358,21 @@ module SwarmSDK
         agent_definition&.system_prompt
       end
 
-      # Apply system prompt
-      delegation_chat.configure_system_prompt(system_prompt) if system_prompt
+      # Build complete message list including system message
+      all_messages = []
+
+      # Add system message first if we have a system prompt
+      if system_prompt
+        all_messages << RubyLLM::Message.new(role: :system, content: system_prompt)
+      end
 
       # Restore conversation messages
       conversation = snapshot_data[:conversation] || snapshot_data["conversation"]
-      conversation.each do |msg_data|
-        message = deserialize_message(msg_data)
-        messages << message
-      end
+      restored_messages = conversation.map { |msg_data| deserialize_message(msg_data) }
+      all_messages.concat(restored_messages)
+
+      # Replace all messages using proper abstraction
+      delegation_chat.replace_messages(all_messages)
 
       # Restore context state
       context_state = snapshot_data[:context_state] || snapshot_data["context_state"]

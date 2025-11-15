@@ -176,6 +176,18 @@ module SwarmSDK
         @llm_chat.tools.delete(name.to_s) || @llm_chat.tools.delete(name.to_sym)
       end
 
+      # Direct access to tools hash for advanced operations
+      #
+      # Use with caution - prefer has_tool?, tool_names, remove_tool for most cases.
+      # This is provided for:
+      # - Direct tool execution in tests
+      # - Advanced tool manipulation (remove_mutable_tools)
+      #
+      # @return [Hash] Tool name to tool instance mapping
+      def tools
+        @llm_chat.tools
+      end
+
       # Message introspection
       def message_count
         @llm_chat.messages.size
@@ -189,24 +201,72 @@ module SwarmSDK
         @llm_chat.messages.reverse.find { |msg| msg.role == :assistant }
       end
 
-      # --- Internal Access (for helper modules only) ---
-      # These methods provide raw access to RubyLLM internals for internal Chat modules
-      # (ContextTracker, SystemReminderInjector, HookIntegration, etc.)
-      # DO NOT use these in external SDK code - use the abstraction methods above
-
-      # @!visibility private
-      def internal_messages
-        @llm_chat.messages
+      # Read-only access to conversation messages
+      #
+      # Returns a copy of the message array for safe enumeration.
+      # External code should use this instead of internal_messages.
+      #
+      # @return [Array<RubyLLM::Message>] Copy of message array
+      def messages
+        @llm_chat.messages.dup
       end
 
-      # @!visibility private
-      def internal_tools
-        @llm_chat.tools
+      # Atomically replace all conversation messages
+      #
+      # Used for context compaction and state restoration.
+      # This is the safe way to manipulate messages from external code.
+      #
+      # @param new_messages [Array<RubyLLM::Message>] New message array
+      # @return [self] for chaining
+      def replace_messages(new_messages)
+        @llm_chat.messages.clear
+        new_messages.each { |msg| @llm_chat.messages << msg }
+        self
       end
 
-      # @!visibility private
-      def internal_model
-        @llm_chat.model
+      # Get all assistant messages
+      #
+      # @return [Array<RubyLLM::Message>] All assistant messages
+      def assistant_messages
+        @llm_chat.messages.select { |msg| msg.role == :assistant }
+      end
+
+      # Find the last message matching a condition
+      #
+      # @yield [msg] Block to test each message
+      # @return [RubyLLM::Message, nil] Last matching message or nil
+      def find_last_message(&block)
+        @llm_chat.messages.reverse.find(&block)
+      end
+
+      # Find the index of last message matching a condition
+      #
+      # @yield [msg] Block to test each message
+      # @return [Integer, nil] Index of last matching message or nil
+      def find_last_message_index(&block)
+        @llm_chat.messages.rindex(&block)
+      end
+
+      # Get tool names that are NOT delegation tools
+      #
+      # @return [Array<String>] Non-delegation tool names
+      def non_delegation_tool_names
+        if @agent_context
+          @llm_chat.tools.keys.reject { |name| @agent_context.delegation_tool?(name.to_s) }
+        else
+          @llm_chat.tools.keys
+        end
+      end
+
+      # Add an ephemeral reminder to the most recent message
+      #
+      # The reminder will be sent to the LLM but not persisted in message history.
+      # This encapsulates the internal message array access.
+      #
+      # @param reminder [String] Reminder content to add
+      # @return [void]
+      def add_ephemeral_reminder(reminder)
+        @context_manager&.add_ephemeral_reminder(reminder, messages_array: @llm_chat.messages)
       end
 
       # --- Setup Methods ---

@@ -58,7 +58,7 @@ module SwarmSDK
     # @return [ContextCompactor::Metrics] Compression metrics
     def compact
       start_time = Time.now
-      original_messages = @chat.internal_messages.dup
+      original_messages = @chat.messages
 
       # Emit compression_started event
       LogStream.emit(
@@ -322,19 +322,13 @@ module SwarmSDK
 
     # Replace messages in the chat
     #
-    # RubyLLM::Chat doesn't have a public API for replacing all messages,
-    # so we need to work with the internal messages array.
+    # Delegates to the Chat's replace_messages method which provides
+    # a safe abstraction over the internal message array.
     #
     # @param new_messages [Array<RubyLLM::Message>] New message array
     # @return [void]
     def replace_messages(new_messages)
-      # Clear existing messages
-      @chat.internal_messages.clear
-
-      # Add new messages
-      new_messages.each do |msg|
-        @chat.internal_messages << msg
-      end
+      @chat.replace_messages(new_messages)
     end
   end
 end
