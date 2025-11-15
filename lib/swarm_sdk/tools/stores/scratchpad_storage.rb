@@ -38,8 +38,8 @@ module SwarmSDK
             content_size = content.bytesize
 
             # Check entry size limit
-            if content_size > MAX_ENTRY_SIZE
-              raise ArgumentError, "Content exceeds maximum size (#{format_bytes(MAX_ENTRY_SIZE)}). " \
+            if content_size > Defaults::Storage::ENTRY_SIZE_BYTES
+              raise ArgumentError, "Content exceeds maximum size (#{format_bytes(Defaults::Storage::ENTRY_SIZE_BYTES)}). " \
                 "Current: #{format_bytes(content_size)}"
             end
 
@@ -49,8 +49,8 @@ module SwarmSDK
             new_total_size = @total_size - existing_size + content_size
 
             # Check total size limit
-            if new_total_size > MAX_TOTAL_SIZE
-              raise ArgumentError, "Scratchpad full (#{format_bytes(MAX_TOTAL_SIZE)} limit). " \
+            if new_total_size > Defaults::Storage::TOTAL_SIZE_BYTES
+              raise ArgumentError, "Scratchpad full (#{format_bytes(Defaults::Storage::TOTAL_SIZE_BYTES)} limit). " \
                 "Current: #{format_bytes(@total_size)}, " \
                 "Would be: #{format_bytes(new_total_size)}. " \
                 "Clear old entries or use smaller content."

@@ -228,8 +228,8 @@ module SwarmSDK
     end
 
     def test_default_constants
-      assert_equal(50, Swarm::DEFAULT_GLOBAL_CONCURRENCY)
-      assert_equal(10, Swarm::DEFAULT_LOCAL_CONCURRENCY)
+      assert_equal(50, Defaults::Concurrency::GLOBAL_LIMIT)
+      assert_equal(10, Defaults::Concurrency::LOCAL_LIMIT)
     end
 
     def test_chaining_add_agent_and_set_lead

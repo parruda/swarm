@@ -178,11 +178,11 @@ module SwarmSDK
         end
 
         def test_max_entry_size_constant
-          assert_equal(3_000_000, Storage::MAX_ENTRY_SIZE)
+          assert_equal(3_000_000, Defaults::Storage::ENTRY_SIZE_BYTES)
         end
 
         def test_max_total_size_constant
-          assert_equal(100_000_000_000, Storage::MAX_TOTAL_SIZE)
+          assert_equal(100_000_000_000, Defaults::Storage::TOTAL_SIZE_BYTES)
         end
       end
     end

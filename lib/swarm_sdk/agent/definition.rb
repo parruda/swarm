@@ -18,11 +18,6 @@ module SwarmSDK
     #     system_prompt: "You build APIs"
     #   })
     class Definition
-      # Backward compatibility aliases - use Defaults:: constants for new code
-      DEFAULT_MODEL = Defaults::Agent::MODEL
-      DEFAULT_PROVIDER = Defaults::Agent::PROVIDER
-      DEFAULT_TIMEOUT = Defaults::Timeouts::AGENT_REQUEST_SECONDS
-
       attr_reader :name,
         :description,
         :model,
@@ -72,14 +67,14 @@ module SwarmSDK
         end
 
         @description = config[:description]
-        @model = config[:model] || DEFAULT_MODEL
-        @provider = config[:provider] || DEFAULT_PROVIDER
+        @model = config[:model] || Defaults::Agent::MODEL
+        @provider = config[:provider] || Defaults::Agent::PROVIDER
         @base_url = config[:base_url]
         @api_version = config[:api_version]
         @context_window = config[:context_window] # Explicit context window override
         @parameters = config[:parameters] || {}
         @headers = Utils.stringify_keys(config[:headers] || {})
-        @timeout = config[:timeout] || DEFAULT_TIMEOUT
+        @timeout = config[:timeout] || Defaults::Timeouts::AGENT_REQUEST_SECONDS
         @bypass_permissions = config[:bypass_permissions] || false
         @max_concurrent_tools = config[:max_concurrent_tools]
         # Always assume model exists - SwarmSDK validates models separately using models.json

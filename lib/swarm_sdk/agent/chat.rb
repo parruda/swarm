@@ -127,7 +127,7 @@ module SwarmSDK
         max_concurrent_tools = definition[:max_concurrent_tools]
         base_url = definition[:base_url]
         api_version = definition[:api_version]
-        timeout = definition[:timeout] || Definition::DEFAULT_TIMEOUT
+        timeout = definition[:timeout] || Defaults::Timeouts::AGENT_REQUEST_SECONDS
         assume_model_exists = definition[:assume_model_exists]
         system_prompt = definition[:system_prompt]
         parameters = definition[:parameters]

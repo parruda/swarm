@@ -298,7 +298,7 @@ module SwarmSDK
     end
 
     def test_default_timeout_constant
-      assert_equal(300, Agent::Definition::DEFAULT_TIMEOUT)
+      assert_equal(300, Defaults::Timeouts::AGENT_REQUEST_SECONDS)
     end
 
     def test_timeout_defaults_to_300_seconds

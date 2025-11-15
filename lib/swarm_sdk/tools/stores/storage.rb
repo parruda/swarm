@@ -14,10 +14,6 @@ module SwarmSDK
       # - Search capabilities: Glob patterns and grep-style content search
       # - Thread-safe: Mutex-protected operations
       class Storage
-        # Backward compatibility aliases - use Defaults module for new code
-        MAX_ENTRY_SIZE = Defaults::Storage::ENTRY_SIZE_BYTES
-        MAX_TOTAL_SIZE = Defaults::Storage::TOTAL_SIZE_BYTES
-
         # Represents a single storage entry with metadata
         Entry = Struct.new(:content, :title, :updated_at, :size, keyword_init: true)
 

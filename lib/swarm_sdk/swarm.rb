@@ -68,8 +68,6 @@ module SwarmSDK
     include HookTriggers
 
     # Backward compatibility aliases - use Defaults module for new code
-    DEFAULT_GLOBAL_CONCURRENCY = Defaults::Concurrency::GLOBAL_LIMIT
-    DEFAULT_LOCAL_CONCURRENCY = Defaults::Concurrency::LOCAL_LIMIT
     DEFAULT_MCP_LOG_LEVEL = Defaults::Logging::MCP_LOG_LEVEL
 
     # Default tools available to all agents
@@ -142,7 +140,7 @@ module SwarmSDK
     # @param scratchpad [Tools::Stores::Scratchpad, nil] Optional scratchpad instance (for testing/internal use)
     # @param scratchpad_mode [Symbol, String] Scratchpad mode (:enabled or :disabled). :per_node not allowed for non-node swarms.
     # @param allow_filesystem_tools [Boolean, nil] Whether to allow filesystem tools (nil uses global setting)
-    def initialize(name:, swarm_id: nil, parent_swarm_id: nil, global_concurrency: DEFAULT_GLOBAL_CONCURRENCY, default_local_concurrency: DEFAULT_LOCAL_CONCURRENCY, scratchpad: nil, scratchpad_mode: :enabled, allow_filesystem_tools: nil)
+    def initialize(name:, swarm_id: nil, parent_swarm_id: nil, global_concurrency: Defaults::Concurrency::GLOBAL_LIMIT, default_local_concurrency: Defaults::Concurrency::LOCAL_LIMIT, scratchpad: nil, scratchpad_mode: :enabled, allow_filesystem_tools: nil)
       @name = name
       @swarm_id = swarm_id || generate_swarm_id(name)
       @parent_swarm_id = parent_swarm_id

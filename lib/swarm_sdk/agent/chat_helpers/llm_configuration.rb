@@ -51,7 +51,7 @@ module SwarmSDK
         #
         # @return [Array<RubyLLM::Chat, RubyLLM::Provider>] Chat and provider instances
         def instantiate_chat(model_id:, provider_name:, actual_provider:, base_url:, timeout:, assume_model_exists:, chat_options:)
-          if base_url || timeout != Definition::DEFAULT_TIMEOUT
+          if base_url || timeout != Defaults::Timeouts::AGENT_REQUEST_SECONDS
             instantiate_with_custom_context(
               model_id: model_id,
               provider_name: provider_name,

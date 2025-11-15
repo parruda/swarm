@@ -73,7 +73,7 @@ module SwarmSDK
         end
 
         def test_write_exceeding_max_entry_size_raises_error
-          large_content = "a" * (Storage::MAX_ENTRY_SIZE + 1)
+          large_content = "a" * (Defaults::Storage::ENTRY_SIZE_BYTES + 1)
 
           error = assert_raises(ArgumentError) do
             @storage.write(file_path: "large.txt", content: large_content, title: "Large")
@@ -98,11 +98,11 @@ module SwarmSDK
 
         def test_write_exceeding_total_size_raises_error
           # Create entries that approach the limit
-          # This is a bit contrived since MAX_TOTAL_SIZE is 100GB
-          # We'll test the logic by stubbing the MAX_TOTAL_SIZE constant
+          # This is a bit contrived since TOTAL_SIZE_BYTES is 100GB
+          # We'll test the logic by stubbing the constant
 
-          original_max = Storage::MAX_TOTAL_SIZE
-          Storage.const_set(:MAX_TOTAL_SIZE, 100) # Temporarily set to 100 bytes
+          original_max = Defaults::Storage::TOTAL_SIZE_BYTES
+          Defaults::Storage.const_set(:TOTAL_SIZE_BYTES, 100) # Temporarily set to 100 bytes
 
           @storage.write(file_path: "file1.txt", content: "a" * 50, title: "File 1")
 
@@ -112,7 +112,7 @@ module SwarmSDK
 
           assert_match(/Scratchpad full/, error.message)
         ensure
-          Storage.const_set(:MAX_TOTAL_SIZE, original_max) if original_max
+          Defaults::Storage.const_set(:TOTAL_SIZE_BYTES, original_max) if original_max
         end
 
         # Read tests
