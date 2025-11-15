@@ -42,7 +42,7 @@ loader.setup
 # These must be loaded after Zeitwerk but before anything uses them
 require_relative "swarm_memory/dsl/memory_config"
 require_relative "swarm_memory/dsl/builder_extension"
-require_relative "swarm_memory/chat_extension"
+# NOTE: ChatExtension was removed in favor of SDK's built-in remove_tool method
 
 module SwarmMemory
   class << self

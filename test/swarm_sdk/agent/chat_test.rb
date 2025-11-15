@@ -832,5 +832,67 @@ module SwarmSDK
       # Verify the guard condition is true
       assert(chat.has_tool?("TodoWrite"), "TodoWrite tool should be present for reminder")
     end
+
+    def test_remove_tool_with_string_key
+      chat = Agent::Chat.new(definition: { model: "gpt-5" })
+
+      # Add a tool with string key
+      test_tool = Struct.new(:name).new("TestTool")
+      chat.tools["TestTool"] = test_tool
+
+      assert(chat.has_tool?("TestTool"), "Tool should be present before removal")
+
+      # Remove with symbol
+      result = chat.remove_tool(:TestTool)
+
+      assert_equal(test_tool, result, "Should return the removed tool")
+      refute(chat.has_tool?("TestTool"), "Tool should be removed")
+    end
+
+    def test_remove_tool_with_symbol_key
+      chat = Agent::Chat.new(definition: { model: "gpt-5" })
+
+      # Add a tool with symbol key
+      test_tool = Struct.new(:name).new("TestTool")
+      chat.tools[:TestTool] = test_tool
+
+      assert(chat.has_tool?(:TestTool), "Tool should be present before removal")
+
+      # Remove with symbol
+      result = chat.remove_tool(:TestTool)
+
+      assert_equal(test_tool, result, "Should return the removed tool")
+      refute(chat.has_tool?(:TestTool), "Tool should be removed")
+    end
+
+    def test_remove_tool_returns_nil_for_nonexistent_tool
+      chat = Agent::Chat.new(definition: { model: "gpt-5" })
+
+      # Try to remove a tool that doesn't exist
+      result = chat.remove_tool(:NonexistentTool)
+
+      assert_nil(result, "Should return nil for nonexistent tool")
+    end
+
+    def test_remove_tool_handles_both_string_and_symbol_lookups
+      chat = Agent::Chat.new(definition: { model: "gpt-5" })
+
+      # Add tool with string key
+      test_tool = Struct.new(:name).new("MyTool")
+      chat.tools["MyTool"] = test_tool
+
+      # Remove with string should work
+      result = chat.remove_tool("MyTool")
+
+      assert_equal(test_tool, result, "Should remove tool by string name")
+
+      # Add again with symbol key
+      chat.tools[:AnotherTool] = test_tool
+
+      # Remove with string should fall back to symbol lookup
+      result = chat.remove_tool("AnotherTool")
+
+      assert_equal(test_tool, result, "Should remove tool by falling back to symbol lookup")
+    end
   end
 end

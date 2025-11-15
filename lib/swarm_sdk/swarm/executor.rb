@@ -68,6 +68,9 @@ module SwarmSDK
         current_prompt = prompt
 
         begin
+          # Notify plugins that swarm is starting
+          PluginRegistry.emit_event(:on_swarm_started, swarm: @swarm)
+
           result = execution_loop(current_prompt, logs, start_time, &block)
           swarm_stop_triggered = true
         rescue ConfigurationError, AgentNotFoundError
@@ -78,6 +81,9 @@ module SwarmSDK
         rescue StandardError => e
           result = handle_standard_error(e, logs, start_time)
         ensure
+          # Notify plugins that swarm is stopping (called even on error)
+          PluginRegistry.emit_event(:on_swarm_stopped, swarm: @swarm)
+
           cleanup_after_execution(result, start_time, logs, swarm_stop_triggered, has_logging)
         end
 
