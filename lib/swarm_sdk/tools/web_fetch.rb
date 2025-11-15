@@ -51,9 +51,10 @@ module SwarmSDK
         desc: "The prompt to run on the fetched content. Required when SwarmSDK is configured with webfetch_provider and webfetch_model. Optional otherwise (ignored if LLM processing not configured).",
         required: false
 
-      MAX_CONTENT_LENGTH = 100_000 # characters
+      # Backward compatibility aliases - use Defaults module for new code
+      MAX_CONTENT_LENGTH = Defaults::Limits::WEB_FETCH_CHARACTERS
       USER_AGENT = "SwarmSDK WebFetch Tool (https://github.com/parruda/claude-swarm)"
-      TIMEOUT = 30 # seconds
+      TIMEOUT = Defaults::Timeouts::WEB_FETCH_SECONDS
 
       def execute(url:, prompt: nil)
         # Validate inputs

@@ -14,11 +14,9 @@ module SwarmSDK
       # - Search capabilities: Glob patterns and grep-style content search
       # - Thread-safe: Mutex-protected operations
       class Storage
-        # Maximum size per entry (3MB)
-        MAX_ENTRY_SIZE = 3_000_000
-
-        # Maximum total storage size (100GB)
-        MAX_TOTAL_SIZE = 100_000_000_000
+        # Backward compatibility aliases - use Defaults module for new code
+        MAX_ENTRY_SIZE = Defaults::Storage::ENTRY_SIZE_BYTES
+        MAX_TOTAL_SIZE = Defaults::Storage::TOTAL_SIZE_BYTES
 
         # Represents a single storage entry with metadata
         Entry = Struct.new(:content, :title, :updated_at, :size, keyword_init: true)

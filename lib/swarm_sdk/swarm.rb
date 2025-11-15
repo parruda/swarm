@@ -67,9 +67,10 @@ module SwarmSDK
     include LoggingCallbacks
     include HookTriggers
 
-    DEFAULT_GLOBAL_CONCURRENCY = 50
-    DEFAULT_LOCAL_CONCURRENCY = 10
-    DEFAULT_MCP_LOG_LEVEL = Logger::WARN
+    # Backward compatibility aliases - use Defaults module for new code
+    DEFAULT_GLOBAL_CONCURRENCY = Defaults::Concurrency::GLOBAL_LIMIT
+    DEFAULT_LOCAL_CONCURRENCY = Defaults::Concurrency::LOCAL_LIMIT
+    DEFAULT_MCP_LOG_LEVEL = Defaults::Logging::MCP_LOG_LEVEL
 
     # Default tools available to all agents
     DEFAULT_TOOLS = ToolConfigurator::DEFAULT_TOOLS

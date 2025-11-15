@@ -90,7 +90,8 @@ module SwarmSDK
     #   echo "$CONTENT"
     #   exit 0
     class TransformerExecutor
-      DEFAULT_TIMEOUT = 60
+      # Backward compatibility alias - use Defaults module for new code
+      DEFAULT_TIMEOUT = Defaults::Timeouts::TRANSFORMER_COMMAND_SECONDS
 
       # Result object for transformer execution
       TransformerResult = Struct.new(:success, :content, :skip_execution, :halt, :error_message, keyword_init: true) do
