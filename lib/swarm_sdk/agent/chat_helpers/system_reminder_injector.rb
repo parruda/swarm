@@ -68,7 +68,7 @@ module SwarmSDK
 
             # Track reminders to embed in this message when sending to LLM
             reminders.each do |reminder|
-              chat.context_manager.add_ephemeral_reminder(reminder, messages_array: chat.internal_messages)
+              chat.add_ephemeral_reminder(reminder)
             end
           end
 
@@ -101,7 +101,7 @@ module SwarmSDK
             return false if chat.message_count < 5
 
             # Find the last message that contains TodoWrite tool usage
-            last_todo_index = chat.internal_messages.rindex do |msg|
+            last_todo_index = chat.find_last_message_index do |msg|
               msg.role == :tool && msg.content.to_s.include?("TodoWrite")
             end
 
@@ -125,7 +125,7 @@ module SwarmSDK
           # @param chat [Agent::Chat] The chat instance
           # @return [Integer, nil] Index of last TodoWrite usage, or nil
           def find_last_todowrite_index(chat)
-            chat.internal_messages.rindex do |msg|
+            chat.find_last_message_index do |msg|
               msg.role == :tool && msg.content.to_s.include?("TodoWrite")
             end
           end

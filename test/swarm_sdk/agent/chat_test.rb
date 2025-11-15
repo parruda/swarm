@@ -33,8 +33,11 @@ module SwarmSDK
       # Providers are modules that respond to :complete, not instances of a base class
       refute_nil(chat.provider)
       assert_respond_to(chat.provider, :complete)
-      # Model is resolved to Model::Info object - accessed via internal_model
-      assert_kind_of(RubyLLM::Model::Info, chat.internal_model)
+      # Model info is available via context_limit (which uses model_context_window internally)
+      # Context window should be available for configured models
+      context_window = chat.context_limit
+
+      assert(context_window.nil? || context_window.positive?, "Expected context limit from model")
     end
 
     def test_initialization_with_base_url
@@ -180,8 +183,8 @@ module SwarmSDK
     def test_context_limit_handles_missing_model_gracefully
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
-      # Even if chat.internal_model raises error, we have @real_model_info as fallback
-      chat.stub(:internal_model, ->() { raise StandardError, "Model not found" }) do
+      # Even if model_context_window raises error, we have @real_model_info as fallback
+      chat.stub(:model_context_window, ->() { raise StandardError, "Model not found" }) do
         limit = chat.context_limit
 
         # Should still get context from @real_model_info
@@ -194,14 +197,14 @@ module SwarmSDK
 
       # Mock messages - input_tokens on assistant messages is cumulative
       # Only the LATEST assistant message's input_tokens matters
-      user1 = Struct.new(:role, :input_tokens).new(:user, nil)
       assistant1 = Struct.new(:role, :input_tokens).new(:assistant, 100)
-      user2 = Struct.new(:role, :input_tokens).new(:user, nil)
       assistant2 = Struct.new(:role, :input_tokens).new(:assistant, 250) # Already includes assistant1's input
-      user3 = Struct.new(:role, :input_tokens).new(:user, nil)
       assistant3 = Struct.new(:role, :input_tokens).new(:assistant, 350) # Already includes all previous
 
-      chat.stub(:internal_messages, [user1, assistant1, user2, assistant2, user3, assistant3]) do
+      # Stub find_last_message to return the last assistant with input_tokens
+      chat.stub(:find_last_message, ->(&block) {
+        [assistant3, assistant2, assistant1].find(&block)
+      }) do
         assert_equal(350, chat.cumulative_input_tokens, "Should use latest assistant message's input_tokens")
       end
     end
@@ -210,14 +213,14 @@ module SwarmSDK
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
       # Mock messages with some nil tokens
-      user1 = Struct.new(:role, :input_tokens).new(:user, nil)
       assistant1 = Struct.new(:role, :input_tokens).new(:assistant, 100)
-      user2 = Struct.new(:role, :input_tokens).new(:user, nil)
       assistant2 = Struct.new(:role, :input_tokens).new(:assistant, nil) # No tokens reported
-      user3 = Struct.new(:role, :input_tokens).new(:user, nil)
       assistant3 = Struct.new(:role, :input_tokens).new(:assistant, 250)
 
-      chat.stub(:internal_messages, [user1, assistant1, user2, assistant2, user3, assistant3]) do
+      # Stub find_last_message - returns first message matching block in reverse order
+      chat.stub(:find_last_message, ->(&block) {
+        [assistant3, assistant2, assistant1].find(&block)
+      }) do
         assert_equal(250, chat.cumulative_input_tokens, "Should use latest assistant message with non-nil input_tokens")
       end
     end
@@ -226,14 +229,12 @@ module SwarmSDK
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
       # Mock messages - output tokens are per-response and should be summed
-      user1 = Struct.new(:role, :output_tokens).new(:user, nil)
       assistant1 = Struct.new(:role, :output_tokens).new(:assistant, 75)
-      user2 = Struct.new(:role, :output_tokens).new(:user, nil)
       assistant2 = Struct.new(:role, :output_tokens).new(:assistant, 125)
-      user3 = Struct.new(:role, :output_tokens).new(:user, nil)
       assistant3 = Struct.new(:role, :output_tokens).new(:assistant, 25)
 
-      chat.stub(:internal_messages, [user1, assistant1, user2, assistant2, user3, assistant3]) do
+      # Stub assistant_messages to return the assistant messages
+      chat.stub(:assistant_messages, [assistant1, assistant2, assistant3]) do
         assert_equal(225, chat.cumulative_output_tokens, "Should sum all assistant messages' output_tokens")
       end
     end
@@ -243,14 +244,17 @@ module SwarmSDK
 
       # Mock messages with both input and output tokens
       # Input is cumulative (latest only), output is per-response (sum all)
-      user1 = Struct.new(:role, :input_tokens, :output_tokens).new(:user, nil, nil)
       assistant1 = Struct.new(:role, :input_tokens, :output_tokens).new(:assistant, 100, 75)
-      user2 = Struct.new(:role, :input_tokens, :output_tokens).new(:user, nil, nil)
       assistant2 = Struct.new(:role, :input_tokens, :output_tokens).new(:assistant, 250, 125) # input already includes assistant1
 
-      chat.stub(:internal_messages, [user1, assistant1, user2, assistant2]) do
-        # Latest input (250) + sum of outputs (75 + 125 = 200) = 450
-        assert_equal(450, chat.cumulative_total_tokens)
+      # Stub both find_last_message and assistant_messages
+      chat.stub(:find_last_message, ->(&block) {
+        [assistant2, assistant1].find(&block)
+      }) do
+        chat.stub(:assistant_messages, [assistant1, assistant2]) do
+          # Latest input (250) + sum of outputs (75 + 125 = 200) = 450
+          assert_equal(450, chat.cumulative_total_tokens)
+        end
       end
     end
 
@@ -538,12 +542,12 @@ module SwarmSDK
     def test_context_limit_with_error_returns_nil
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
-      # Mock internal_model to raise error
-      chat.stub(:internal_model, ->() { raise StandardError, "Model error" }) do
+      # Mock model_context_window to raise error
+      chat.stub(:model_context_window, ->() { raise StandardError, "Model error" }) do
         # Should return nil instead of crashing
         limit = chat.context_limit
 
-        # Will be nil if both @real_model_info and internal_model() fail
+        # Will be nil if both @real_model_info and model_context_window() fail
         assert(limit.nil? || limit.positive?)
       end
     end
@@ -551,10 +555,8 @@ module SwarmSDK
     def test_cumulative_input_tokens_with_no_assistant_messages
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
-      # Mock messages with no assistant messages
-      user1 = Struct.new(:role, :input_tokens).new(:user, nil)
-
-      chat.stub(:internal_messages, [user1]) do
+      # Stub find_last_message to return nil (no matching message)
+      chat.stub(:find_last_message, ->(&_block) { nil }) do
         assert_equal(0, chat.cumulative_input_tokens)
       end
     end
@@ -562,9 +564,8 @@ module SwarmSDK
     def test_cumulative_output_tokens_with_no_assistant_messages
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
-      user1 = Struct.new(:role, :output_tokens).new(:user, nil)
-
-      chat.stub(:internal_messages, [user1]) do
+      # Stub assistant_messages to return empty array
+      chat.stub(:assistant_messages, []) do
         assert_equal(0, chat.cumulative_output_tokens)
       end
     end
@@ -572,13 +573,9 @@ module SwarmSDK
     def test_should_inject_todowrite_reminder_with_few_messages
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
-      # Mock messages with only 3 messages
-      user1 = Struct.new(:role).new(:user)
-      user2 = Struct.new(:role).new(:user)
-      user3 = Struct.new(:role).new(:user)
-
-      chat.stub(:internal_messages, [user1, user2, user3]) do
-        chat.stub(:message_count, 3) do
+      # Mock message_count and find_last_message_index
+      chat.stub(:message_count, 3) do
+        chat.stub(:find_last_message_index, ->(&_block) { nil }) do
           refute(Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
         end
       end
@@ -587,12 +584,10 @@ module SwarmSDK
     def test_should_inject_todowrite_reminder_with_recent_todowrite
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
-      # Mock messages with recent TodoWrite
-      messages = (1..10).map { Struct.new(:role, :content).new(:user, "test") }
-      messages << Struct.new(:role, :content).new(:tool, "TodoWrite result")
-
-      chat.stub(:internal_messages, messages) do
-        chat.stub(:message_count, messages.size) do
+      # Mock messages with recent TodoWrite (index 10, 11 messages total)
+      chat.stub(:message_count, 11) do
+        # Last TodoWrite at index 10 (recent, not enough messages since)
+        chat.stub(:find_last_message_index, ->(&_block) { 10 }) do
           refute(Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
         end
       end
@@ -602,10 +597,9 @@ module SwarmSDK
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
       # Mock messages exceeding interval without TodoWrite
-      messages = (1..20).map { Struct.new(:role, :content).new(:user, "test") }
-
-      chat.stub(:internal_messages, messages) do
-        chat.stub(:message_count, messages.size) do
+      chat.stub(:message_count, 20) do
+        # No TodoWrite found
+        chat.stub(:find_last_message_index, ->(&_block) { nil }) do
           assert(Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
         end
       end
@@ -615,10 +609,9 @@ module SwarmSDK
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
       # Mock 20 messages (15 since last TodoWrite at index 5)
-      messages = (1..20).map { Struct.new(:role, :content).new(:user, "test") }
-
-      chat.stub(:internal_messages, messages) do
-        chat.stub(:message_count, messages.size) do
+      chat.stub(:message_count, 20) do
+        # No recent TodoWrite in messages
+        chat.stub(:find_last_message_index, ->(&_block) { nil }) do
           assert(Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, 5))
         end
       end
@@ -759,14 +752,13 @@ module SwarmSDK
       # Create chat with TodoWrite tool
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
-      # Directly add TodoWrite to internal_tools hash (simpler than mocking with_tool)
+      # Directly add TodoWrite to tools hash (simpler than mocking with_tool)
       todo_tool = Struct.new(:name).new("TodoWrite")
-      chat.internal_tools["TodoWrite"] = todo_tool
+      chat.tools["TodoWrite"] = todo_tool
 
       # Mock messages exceeding interval (should trigger reminder)
-      messages = (1..20).map { Struct.new(:role, :content).new(:user, "test") }
-      chat.stub(:internal_messages, messages) do
-        chat.stub(:message_count, messages.size) do
+      chat.stub(:message_count, 20) do
+        chat.stub(:find_last_message_index, ->(&_block) { nil }) do
           # Test the guard logic directly
           # With TodoWrite tool present and enough messages, should_inject should return true
           assert(
@@ -820,7 +812,7 @@ module SwarmSDK
 
       # Directly add TodoWrite to internal_tools hash (simpler than mocking with_tool)
       todo_tool = Struct.new(:name).new("TodoWrite")
-      chat.internal_tools["TodoWrite"] = todo_tool
+      chat.tools["TodoWrite"] = todo_tool
 
       # Test the guard logic for first message reminder
       # Build parts as inject_first_message_reminders does

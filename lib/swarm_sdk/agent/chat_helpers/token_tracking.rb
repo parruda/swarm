@@ -14,7 +14,7 @@ module SwarmSDK
           return @explicit_context_window if @explicit_context_window
           return @real_model_info.context_window if @real_model_info&.context_window
 
-          internal_model.context_window
+          model_context_window
         rescue StandardError
           nil
         end
@@ -26,28 +26,28 @@ module SwarmSDK
         #
         # @return [Integer] Total input tokens used
         def cumulative_input_tokens
-          internal_messages.reverse.find { |msg| msg.role == :assistant && msg.input_tokens }&.input_tokens || 0
+          find_last_message { |msg| msg.role == :assistant && msg.input_tokens }&.input_tokens || 0
         end
 
         # Calculate cumulative output tokens across all assistant messages
         #
         # @return [Integer] Total output tokens used
         def cumulative_output_tokens
-          internal_messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.output_tokens || 0 }
+          assistant_messages.sum { |msg| msg.output_tokens || 0 }
         end
 
         # Calculate cumulative cached tokens
         #
         # @return [Integer] Total cached tokens used
         def cumulative_cached_tokens
-          internal_messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.cached_tokens || 0 }
+          assistant_messages.sum { |msg| msg.cached_tokens || 0 }
         end
 
         # Calculate cumulative cache creation tokens
         #
         # @return [Integer] Total tokens written to cache
         def cumulative_cache_creation_tokens
-          internal_messages.select { |msg| msg.role == :assistant }.sum { |msg| msg.cache_creation_tokens || 0 }
+          assistant_messages.sum { |msg| msg.cache_creation_tokens || 0 }
         end
 
         # Calculate effective input tokens (excluding cache hits)

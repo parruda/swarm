@@ -240,9 +240,9 @@ module SwarmSDK
         def trigger_user_prompt(prompt, source: "user")
           return { halted: false, modified_prompt: prompt } unless @hook_executor
 
-          # Filter out delegation tools from tools list
-          actual_tools = if respond_to?(:internal_tools) && @agent_context
-            internal_tools.keys.reject { |tool_name| @agent_context.delegation_tool?(tool_name.to_s) }
+          # Get tool names without delegation tools using proper abstraction
+          actual_tools = if respond_to?(:non_delegation_tool_names) && @agent_context
+            non_delegation_tool_names
           else
             []
           end
