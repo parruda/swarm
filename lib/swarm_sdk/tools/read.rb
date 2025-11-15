@@ -10,8 +10,9 @@ module SwarmSDK
     class Read < RubyLLM::Tool
       include PathResolver
 
-      MAX_LINE_LENGTH = 2000
-      DEFAULT_LIMIT = 2000
+      # Backward compatibility aliases - use Defaults module for new code
+      MAX_LINE_LENGTH = Defaults::Limits::LINE_CHARACTERS
+      DEFAULT_LIMIT = Defaults::Limits::READ_LINES
 
       # List of available document converters
       CONVERTERS = [

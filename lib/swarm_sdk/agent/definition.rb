@@ -20,7 +20,8 @@ module SwarmSDK
     class Definition
       DEFAULT_MODEL = "gpt-5"
       DEFAULT_PROVIDER = "openai"
-      DEFAULT_TIMEOUT = 300 # 5 minutes - reasoning models can take a while
+      # Backward compatibility alias - use Defaults::Timeouts::AGENT_REQUEST_SECONDS for new code
+      DEFAULT_TIMEOUT = Defaults::Timeouts::AGENT_REQUEST_SECONDS
       BASE_SYSTEM_PROMPT_PATH = File.expand_path("../prompts/base_system_prompt.md.erb", __dir__)
 
       attr_reader :name,
