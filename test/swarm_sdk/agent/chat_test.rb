@@ -511,12 +511,12 @@ module SwarmSDK
 
     def test_system_reminder_constants_defined
       # Verify the constants are defined in SystemReminderInjector
-      assert_kind_of(String, Agent::Chat::SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER)
-      assert_kind_of(String, Agent::Chat::SystemReminderInjector::TODOWRITE_PERIODIC_REMINDER)
+      assert_kind_of(String, Agent::ChatHelpers::SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER)
+      assert_kind_of(String, Agent::ChatHelpers::SystemReminderInjector::TODOWRITE_PERIODIC_REMINDER)
 
       # Verify content
-      assert_match(/todo list is currently empty/, Agent::Chat::SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER)
-      assert_match(/TodoWrite tool hasn't been used recently/, Agent::Chat::SystemReminderInjector::TODOWRITE_PERIODIC_REMINDER)
+      assert_match(/todo list is currently empty/, Agent::ChatHelpers::SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER)
+      assert_match(/TodoWrite tool hasn't been used recently/, Agent::ChatHelpers::SystemReminderInjector::TODOWRITE_PERIODIC_REMINDER)
     end
 
     def test_context_limit_with_explicit_context_window
@@ -579,7 +579,7 @@ module SwarmSDK
 
       chat.stub(:internal_messages, [user1, user2, user3]) do
         chat.stub(:message_count, 3) do
-          refute(Agent::Chat::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
+          refute(Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
         end
       end
     end
@@ -593,7 +593,7 @@ module SwarmSDK
 
       chat.stub(:internal_messages, messages) do
         chat.stub(:message_count, messages.size) do
-          refute(Agent::Chat::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
+          refute(Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
         end
       end
     end
@@ -606,7 +606,7 @@ module SwarmSDK
 
       chat.stub(:internal_messages, messages) do
         chat.stub(:message_count, messages.size) do
-          assert(Agent::Chat::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
+          assert(Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil))
         end
       end
     end
@@ -619,7 +619,7 @@ module SwarmSDK
 
       chat.stub(:internal_messages, messages) do
         chat.stub(:message_count, messages.size) do
-          assert(Agent::Chat::SystemReminderInjector.should_inject_todowrite_reminder?(chat, 5))
+          assert(Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, 5))
         end
       end
     end
@@ -770,7 +770,7 @@ module SwarmSDK
           # Test the guard logic directly
           # With TodoWrite tool present and enough messages, should_inject should return true
           assert(
-            Agent::Chat::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil),
+            Agent::ChatHelpers::SystemReminderInjector.should_inject_todowrite_reminder?(chat, nil),
             "Should inject reminder when TodoWrite tool is present",
           )
 
@@ -826,11 +826,11 @@ module SwarmSDK
       # Build parts as inject_first_message_reminders does
       parts = [
         "test prompt",
-        Agent::Chat::SystemReminderInjector.build_toolset_reminder(chat),
+        Agent::ChatHelpers::SystemReminderInjector.build_toolset_reminder(chat),
       ]
 
       # Guard: only add AFTER_FIRST_MESSAGE_REMINDER if TodoWrite tool present
-      parts << Agent::Chat::SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER if chat.has_tool?("TodoWrite")
+      parts << Agent::ChatHelpers::SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER if chat.has_tool?("TodoWrite")
 
       full_content = parts.join("\n\n")
 

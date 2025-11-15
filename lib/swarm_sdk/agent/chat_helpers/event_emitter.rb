@@ -4,7 +4,7 @@ require "monitor"
 
 module SwarmSDK
   module Agent
-    class Chat
+    module ChatHelpers
       # Minimal event emitter that mirrors RubyLLM::Chat's callback pattern
       #
       # Provides multi-subscriber support for events like tool_call, tool_result,

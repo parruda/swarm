@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat
+    module ChatHelpers
       # Helper methods for logging and serialization of tool calls and results
       #
       # Responsibilities:

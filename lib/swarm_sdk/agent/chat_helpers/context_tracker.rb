@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat
+    module ChatHelpers
       # Manages context tracking, delegation tracking, and logging callbacks
       #
       # Responsibilities:

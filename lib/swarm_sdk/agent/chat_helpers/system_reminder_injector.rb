@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat
+    module ChatHelpers
       # Handles injection of system reminders at strategic points in the conversation
       #
       # Responsibilities:
