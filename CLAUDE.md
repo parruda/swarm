@@ -421,3 +421,5 @@ When working with this codebase:
 7. **Document public APIs** - use YARD comments for public methods
 
 This is an open-source project - code should be exemplary and well-documented.
+
+When making plans, do not include time-based effort estimates.
