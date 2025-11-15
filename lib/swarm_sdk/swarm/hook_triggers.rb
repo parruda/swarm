@@ -28,7 +28,8 @@ module SwarmSDK
         executor = Hooks::Executor.new(@hook_registry, logger: RubyLLM.logger)
         executor.execute_safe(event: :swarm_stop, context: context, callbacks: [])
       rescue StandardError => e
-        RubyLLM.logger.error("SwarmSDK: Error in swarm_stop hook: #{e.message}")
+        LogStream.emit_error(e, source: "hook_triggers", context: "swarm_stop", agent: @lead_agent)
+        RubyLLM.logger.debug("SwarmSDK: Error in swarm_stop hook: #{e.message}")
         nil
       end
 
@@ -51,7 +52,8 @@ module SwarmSDK
         executor = Hooks::Executor.new(@hook_registry, logger: RubyLLM.logger)
         executor.execute_safe(event: :swarm_stop, context: context, callbacks: [])
       rescue StandardError => e
-        RubyLLM.logger.error("SwarmSDK: Error in swarm_stop final emission: #{e.message}")
+        LogStream.emit_error(e, source: "hook_triggers", context: "swarm_stop_final", agent: @lead_agent)
+        RubyLLM.logger.debug("SwarmSDK: Error in swarm_stop final emission: #{e.message}")
       end
 
       private
@@ -108,7 +110,8 @@ module SwarmSDK
         # Return result so caller can check for replace (stdout injection)
         result
       rescue StandardError => e
-        RubyLLM.logger.error("SwarmSDK: Error in swarm_start hook: #{e.message}")
+        LogStream.emit_error(e, source: "hook_triggers", context: "swarm_start", agent: @lead_agent)
+        RubyLLM.logger.debug("SwarmSDK: Error in swarm_start hook: #{e.message}")
         raise
       end
 
@@ -138,7 +141,8 @@ module SwarmSDK
         # Halt execution if hook requests it
         raise Hooks::Error, "First message halted by hook: #{result.value}" if result.halt?
       rescue StandardError => e
-        RubyLLM.logger.error("SwarmSDK: Error in first_message hook: #{e.message}")
+        LogStream.emit_error(e, source: "hook_triggers", context: "first_message", agent: @lead_agent)
+        RubyLLM.logger.debug("SwarmSDK: Error in first_message hook: #{e.message}")
         raise
       end
     end

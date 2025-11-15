@@ -308,7 +308,8 @@ module SwarmSDK
       response.content
     rescue StandardError => e
       # If summarization fails, create a simple fallback summary
-      RubyLLM.logger.warn("ContextCompactor: Summarization failed: #{e.message}")
+      LogStream.emit_error(e, source: "context_compactor", context: "generate_summary", agent: @agent_name)
+      RubyLLM.logger.debug("ContextCompactor: Summarization failed: #{e.message}")
 
       <<~FALLBACK
         ## Summary
