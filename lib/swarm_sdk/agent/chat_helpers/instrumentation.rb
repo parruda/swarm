@@ -33,7 +33,8 @@ module SwarmSDK
 
           RubyLLM.logger.debug("SwarmSDK: Injected LLM instrumentation middleware for agent #{@agent_name}")
         rescue StandardError => e
-          RubyLLM.logger.error("SwarmSDK: Failed to inject LLM instrumentation: #{e.message}")
+          LogStream.emit_error(e, source: "instrumentation", context: "inject_middleware", agent: @agent_name)
+          RubyLLM.logger.debug("SwarmSDK: Failed to inject LLM instrumentation: #{e.message}")
         end
 
         # Handle LLM API request event
@@ -50,7 +51,8 @@ module SwarmSDK
             **data,
           )
         rescue StandardError => e
-          RubyLLM.logger.error("SwarmSDK: Error emitting llm_api_request event: #{e.message}")
+          LogStream.emit_error(e, source: "instrumentation", context: "emit_llm_api_request", agent: @agent_name)
+          RubyLLM.logger.debug("SwarmSDK: Error emitting llm_api_request event: #{e.message}")
         end
 
         # Handle LLM API response event
@@ -67,7 +69,8 @@ module SwarmSDK
             **data,
           )
         rescue StandardError => e
-          RubyLLM.logger.error("SwarmSDK: Error emitting llm_api_response event: #{e.message}")
+          LogStream.emit_error(e, source: "instrumentation", context: "emit_llm_api_response", agent: @agent_name)
+          RubyLLM.logger.debug("SwarmSDK: Error emitting llm_api_response event: #{e.message}")
         end
       end
     end

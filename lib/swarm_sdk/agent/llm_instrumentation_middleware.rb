@@ -64,7 +64,8 @@ module SwarmSDK
         @on_request.call(request_data)
       rescue StandardError => e
         # Don't let logging errors break the request
-        RubyLLM.logger.error("LLM instrumentation request error: #{e.message}")
+        LogStream.emit_error(e, source: "llm_instrumentation_middleware", context: "emit_request_event", provider: @provider_name)
+        RubyLLM.logger.debug("LLM instrumentation request error: #{e.message}")
       end
 
       # Emit response event
@@ -97,7 +98,8 @@ module SwarmSDK
         @on_response.call(response_data)
       rescue StandardError => e
         # Don't let logging errors break the response
-        RubyLLM.logger.error("LLM instrumentation response error: #{e.message}")
+        LogStream.emit_error(e, source: "llm_instrumentation_middleware", context: "emit_response_event", provider: @provider_name)
+        RubyLLM.logger.debug("LLM instrumentation response error: #{e.message}")
       end
 
       # Sanitize headers by removing sensitive data
