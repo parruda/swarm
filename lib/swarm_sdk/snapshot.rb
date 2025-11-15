@@ -152,10 +152,5 @@ module SwarmSDK
     def workflow?
       type == "workflow"
     end
-
-    # Backward compatibility alias (for old test code)
-    def node_orchestrator?
-      workflow?
-    end
   end
 end

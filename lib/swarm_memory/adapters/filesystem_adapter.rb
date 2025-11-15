@@ -93,10 +93,10 @@ module SwarmMemory
                 "Clear old entries or use smaller content."
             end
 
-            # Strip .md extension and flatten path for disk storage
-            # "concepts/ruby/classes.md" → "concepts--ruby--classes"
+            # Strip .md extension for disk storage
+            # "concepts/ruby/classes.md" → "concepts/ruby/classes"
             base_path = file_path.sub(/\.md\z/, "")
-            disk_path = flatten_path(base_path)
+            disk_path = base_path
 
             # 1. Write content to .md file (stored exactly as provided)
             md_file = File.join(@directory, "#{disk_path}.md")
@@ -162,9 +162,9 @@ module SwarmMemory
           return entry.content
         end
 
-        # Strip .md extension and flatten path
+        # Strip .md extension
         base_path = file_path.sub(/\.md\z/, "")
-        disk_path = flatten_path(base_path)
+        disk_path = base_path
         md_file = File.join(@directory, "#{disk_path}.md")
 
         raise ArgumentError, "memory://#{file_path} not found" unless File.exist?(md_file)
@@ -189,9 +189,9 @@ module SwarmMemory
           return load_virtual_entry(file_path)
         end
 
-        # Strip .md extension and flatten path
+        # Strip .md extension
         base_path = file_path.sub(/\.md\z/, "")
-        disk_path = flatten_path(base_path)
+        disk_path = base_path
         md_file = File.join(@directory, "#{disk_path}.md")
         yaml_file = File.join(@directory, "#{disk_path}.yml")
 
@@ -230,9 +230,9 @@ module SwarmMemory
           @semaphore.acquire do
             raise ArgumentError, "file_path is required" if file_path.nil? || file_path.to_s.strip.empty?
 
-            # Strip .md extension and flatten path
+            # Strip .md extension
             base_path = file_path.sub(/\.md\z/, "")
-            disk_path = flatten_path(base_path)
+            disk_path = base_path
             md_file = File.join(@directory, "#{disk_path}.md")
 
             raise ArgumentError, "memory://#{file_path} not found" unless File.exist?(md_file)
@@ -500,29 +500,6 @@ module SwarmMemory
         )
       end
 
-      # Flatten path for disk storage
-      # "concepts/ruby/classes" → "concepts--ruby--classes"
-      #
-      # @param logical_path [String] Logical path with slashes
-      # @return [String] Flattened path with --
-      # Identity function - paths are now stored hierarchically
-      # Kept for backward compatibility during transition
-      #
-      # @param logical_path [String] Logical path
-      # @return [String] Same path (no flattening)
-      def flatten_path(logical_path)
-        logical_path
-      end
-
-      # Identity function - paths are now stored hierarchically
-      # Kept for backward compatibility during transition
-      #
-      # @param disk_path [String] Disk path
-      # @return [String] Same path (no unflattening)
-      def unflatten_path(disk_path)
-        disk_path
-      end
-
       # Check if content is a stub (redirect)
       #
       # @param content [String] File content
@@ -566,7 +543,7 @@ module SwarmMemory
       # @return [void]
       def increment_hits(file_path)
         base_path = file_path.sub(/\.md\z/, "")
-        disk_path = flatten_path(base_path)
+        disk_path = base_path
         yaml_file = File.join(@directory, "#{disk_path}.yml")
         return unless File.exist?(yaml_file)
 
@@ -587,7 +564,7 @@ module SwarmMemory
       # @return [Integer] Size in bytes
       def get_entry_size(file_path)
         base_path = file_path.sub(/\.md\z/, "")
-        disk_path = flatten_path(base_path)
+        disk_path = base_path
         yaml_file = File.join(@directory, "#{disk_path}.yml")
 
         if File.exist?(yaml_file)
