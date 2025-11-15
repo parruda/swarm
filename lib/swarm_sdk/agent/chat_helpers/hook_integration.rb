@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat
+    module ChatHelpers
       # Integrates SwarmSDK's hook system with Agent::Chat
       #
       # Responsibilities:

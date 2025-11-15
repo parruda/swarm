@@ -7,7 +7,7 @@ module SwarmSDK
     class LoggingHelpersTest < Minitest::Test
       # Create a test class that includes the module
       class TestChat
-        include Chat::LoggingHelpers
+        include ChatHelpers::LoggingHelpers
 
         attr_accessor :model_id
 
