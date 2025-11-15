@@ -534,7 +534,7 @@ module SwarmCLI
       lead = @swarm.agent(@swarm.lead_agent)
 
       # Clear the agent's conversation history
-      lead.reset_messages!
+      lead.replace_messages([])
 
       # Clear REPL conversation history
       @conversation_history.clear

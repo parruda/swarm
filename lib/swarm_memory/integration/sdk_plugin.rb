@@ -281,7 +281,7 @@ module SwarmMemory
             agent_definition: agent_definition,
           )
 
-          agent.with_tool(load_skill_tool)
+          agent.add_tool(load_skill_tool)
         end
 
         # Mark mode-specific memory tools + LoadSkill as immutable
