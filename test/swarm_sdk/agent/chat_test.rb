@@ -64,17 +64,14 @@ module SwarmSDK
     def test_uses_composition_with_ruby_llm
       # Chat uses composition (holds reference) instead of inheritance
       assert_equal(Object, Agent::Chat.superclass)
-      # But still provides RubyLLM-like API via composition
+      # But still provides essential orchestration API
       chat = Agent::Chat.new(definition: { model: "gpt-5" })
 
       assert_respond_to(chat, :ask)
       assert_respond_to(chat, :complete)
       assert_respond_to(chat, :add_message)
-      assert_respond_to(chat, :with_tool)
-      assert_respond_to(chat, :with_temperature)
-      assert_respond_to(chat, :with_params)
-      assert_respond_to(chat, :with_headers)
-      assert_respond_to(chat, :with_instructions)
+      assert_respond_to(chat, :add_tool)
+      assert_respond_to(chat, :configure_system_prompt)
     end
 
     def test_initialization_with_custom_timeout

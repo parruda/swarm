@@ -178,7 +178,7 @@ module SwarmSDK
             agent_definition,
           )
 
-          chat.with_tool(tool_instance)
+          chat.add_tool(tool_instance)
         end
       end
 
@@ -237,7 +237,7 @@ module SwarmSDK
           agent_definition,
         )
 
-        chat.with_tool(tool_instance)
+        chat.add_tool(tool_instance)
       end
 
       # Create a tool instance via plugin
@@ -319,7 +319,7 @@ module SwarmSDK
               agent_definition,
             )
 
-            chat.with_tool(tool_instance)
+            chat.add_tool(tool_instance)
           end
         end
       end
@@ -383,7 +383,7 @@ module SwarmSDK
             delegating_chat: chat,
           )
 
-          chat.with_tool(tool)
+          chat.add_tool(tool)
         end
       end
 

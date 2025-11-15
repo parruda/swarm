@@ -99,10 +99,6 @@ module SwarmSDK
         # Track active skill (only used if memory enabled)
         @active_skill_path = nil
 
-        # Store options for later use
-        @init_params = options[:params] || {}
-        @init_headers = options[:headers] || {}
-
         # Create internal RubyLLM::Chat instance and extract provider
         @llm_chat, @provider = create_llm_chat(
           model_id: model_id,
@@ -118,12 +114,15 @@ module SwarmSDK
         fetch_real_model_info(model_id)
 
         # Configure system prompt, parameters, and headers
-        with_instructions(system_prompt) if system_prompt
+        configure_system_prompt(system_prompt) if system_prompt
         configure_parameters(parameters)
         configure_headers(custom_headers)
 
         # Setup around_tool_execution hook for SwarmSDK orchestration
         setup_tool_execution_hook
+
+        # Setup around_llm_request hook for ephemeral message injection
+        setup_llm_request_hook
 
         # Setup event bridging from RubyLLM to SwarmSDK
         setup_event_bridging
@@ -254,15 +253,15 @@ module SwarmSDK
         )
       end
 
-      # --- Fluent API Methods (delegate to RubyLLM::Chat) ---
+      # --- Adapter API (SwarmSDK-stable interface) ---
 
-      # Set system instructions for the conversation
+      # Configure system prompt for the conversation
       #
-      # @param instructions [String] System prompt/instructions
+      # @param prompt [String] System prompt
       # @param replace [Boolean] Replace existing system messages if true
       # @return [self] for chaining
-      def with_instructions(instructions, replace: false)
-        @llm_chat.with_instructions(instructions, replace: replace)
+      def configure_system_prompt(prompt, replace: false)
+        @llm_chat.with_instructions(prompt, replace: replace)
         self
       end
 
@@ -270,71 +269,38 @@ module SwarmSDK
       #
       # @param tool [Class, RubyLLM::Tool] Tool class or instance
       # @return [self] for chaining
-      def with_tool(tool)
+      def add_tool(tool)
         @llm_chat.with_tool(tool)
-        self
-      end
-
-      # Add multiple tools to this chat
-      #
-      # @param tools [Array] Tool classes or instances
-      # @param replace [Boolean] Clear existing tools if true
-      # @return [self] for chaining
-      def with_tools(*tools_list, replace: false)
-        @llm_chat.with_tools(*tools_list, replace: replace)
-        self
-      end
-
-      # Set temperature for LLM calls
-      #
-      # @param temp [Float] Temperature value (0.0-2.0)
-      # @return [self] for chaining
-      def with_temperature(temp)
-        @llm_chat.with_temperature(temp)
-        self
-      end
-
-      # Set additional parameters for LLM calls
-      #
-      # @param new_params [Hash] Parameters to merge
-      # @return [self] for chaining
-      def with_params(**new_params)
-        @llm_chat.with_params(**new_params)
-        self
-      end
-
-      # Set additional headers for LLM calls
-      #
-      # @param new_headers [Hash] Headers to merge
-      # @return [self] for chaining
-      def with_headers(**new_headers)
-        @llm_chat.with_headers(**new_headers)
-        self
-      end
-
-      # Set JSON schema for structured output
-      #
-      # @param new_schema [Hash, RubyLLM::Schema] Schema for structured output
-      # @return [self] for chaining
-      def with_schema(new_schema)
-        @llm_chat.with_schema(new_schema)
         self
       end
 
       # Complete the current conversation (no additional prompt)
       #
-      # Delegates to RubyLLM::Chat#complete after applying semaphores.
+      # Delegates to RubyLLM::Chat#complete() which handles:
+      # - LLM API calls (with around_llm_request hook for ephemeral injection)
+      # - Tool execution (with around_tool_execution hook for SwarmSDK hooks)
+      # - Automatic tool loop (continues until no more tool calls)
       #
-      # @param options [Hash] Additional options
+      # SwarmSDK adds:
+      # - Semaphore rate limiting (ask + global)
+      # - Finish marker handling (finish_agent, finish_swarm)
+      #
+      # @param options [Hash] Additional options (currently unused, for future compatibility)
+      # @param block [Proc] Optional streaming block
       # @return [RubyLLM::Message] LLM response
-      def complete(**options)
+      def complete(**_options, &block)
         @ask_semaphore.acquire do
           execute_with_global_semaphore do
-            catch(:finish_agent) do
+            result = catch(:finish_agent) do
               catch(:finish_swarm) do
-                @llm_chat.complete(**options)
+                # Delegate to RubyLLM::Chat#complete()
+                # Hooks handle ephemeral injection and tool orchestration
+                @llm_chat.complete(&block)
               end
             end
+
+            # Handle finish markers thrown by hooks
+            handle_finish_marker(result)
           end
         end
       end
@@ -352,13 +318,6 @@ module SwarmSDK
       def remove_mutable_tools
         mutable_tool_names = tools.keys.reject { |name| @immutable_tool_names.include?(name.to_s) }
         mutable_tool_names.each { |name| tools.delete(name) }
-      end
-
-      # Add a tool instance dynamically
-      #
-      # @param tool_instance [RubyLLM::Tool] Tool to add
-      def add_tool(tool_instance)
-        with_tool(tool_instance)
       end
 
       # Mark skill as loaded (tracking for debugging/logging)
@@ -389,10 +348,11 @@ module SwarmSDK
       #
       # This method:
       # 1. Serializes concurrent asks via @ask_semaphore
-      # 2. Injects system reminders as ephemeral messages
-      # 3. Triggers user_prompt hooks
-      # 4. Acquires global semaphore for LLM call
-      # 5. Delegates to RubyLLM::Chat for actual execution
+      # 2. Adds CLEAN user message to history (no reminders)
+      # 3. Injects system reminders as ephemeral content (sent to LLM but not stored)
+      # 4. Triggers user_prompt hooks
+      # 5. Acquires global semaphore for LLM call
+      # 6. Delegates to RubyLLM::Chat for actual execution
       #
       # @param prompt [String] User prompt
       # @param options [Hash] Additional options (source: for hooks)
@@ -401,30 +361,40 @@ module SwarmSDK
         @ask_semaphore.acquire do
           is_first = first_message?
 
-          # Build prompt with system reminders
-          full_prompt = build_prompt_with_reminders(prompt, is_first)
+          # Collect system reminders to inject as ephemeral content
+          reminders = collect_system_reminders(prompt, is_first)
 
-          # Trigger user_prompt hook
+          # Trigger user_prompt hook (with clean prompt, not reminders)
           source = options.delete(:source) || "user"
+          final_prompt = prompt
           if @hook_executor
-            hook_result = trigger_user_prompt(full_prompt, source: source)
+            hook_result = trigger_user_prompt(prompt, source: source)
 
             if hook_result[:halted]
               return RubyLLM::Message.new(
                 role: :assistant,
                 content: hook_result[:halt_message],
-                model_id: model.id,
+                model_id: model_id,
               )
             end
 
-            full_prompt = hook_result[:modified_prompt] if hook_result[:modified_prompt]
+            final_prompt = hook_result[:modified_prompt] if hook_result[:modified_prompt]
           end
 
-          # Execute with global semaphore
+          # Add CLEAN user message to history (no reminders embedded)
+          @llm_chat.add_message(role: :user, content: final_prompt)
+
+          # Track reminders as ephemeral content for this LLM call only
+          # They'll be injected by around_llm_request hook but not stored
+          reminders.each do |reminder|
+            @context_manager.add_ephemeral_reminder(reminder, messages_array: @llm_chat.messages)
+          end
+
+          # Execute complete() which handles tool loop and ephemeral injection
           response = execute_with_global_semaphore do
             catch(:finish_agent) do
               catch(:finish_swarm) do
-                @llm_chat.ask(full_prompt, **options)
+                @llm_chat.complete(**options)
               end
             end
           end
@@ -502,6 +472,40 @@ module SwarmSDK
         end.compact
       end
 
+      # Collect all system reminders for this message
+      #
+      # Returns an array of reminder strings that should be injected as ephemeral content.
+      # These are sent to the LLM but not stored in message history.
+      #
+      # @param prompt [String] User prompt
+      # @param is_first [Boolean] Whether this is the first message
+      # @return [Array<String>] Array of reminder strings
+      def collect_system_reminders(prompt, is_first)
+        reminders = []
+
+        if is_first
+          # Add toolset reminder on first message
+          reminders << build_toolset_reminder
+
+          # Add todo list reminder if agent has TodoWrite tool
+          reminders << SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER if has_tool?(:TodoWrite)
+
+          # Collect plugin reminders
+          reminders.concat(collect_plugin_reminders(prompt, is_first_message: true))
+        else
+          # Add periodic TodoWrite reminder if needed
+          if has_tool?(:TodoWrite) && SystemReminderInjector.should_inject_todowrite_reminder?(self, @last_todowrite_message_index)
+            reminders << SystemReminderInjector::TODOWRITE_PERIODIC_REMINDER
+            @last_todowrite_message_index = SystemReminderInjector.find_last_todowrite_index(self)
+          end
+
+          # Collect plugin reminders
+          reminders.concat(collect_plugin_reminders(prompt, is_first_message: false))
+        end
+
+        reminders
+      end
+
       # --- Context Window Tracking ---
 
       # Get context window limit for the current model
@@ -511,7 +515,7 @@ module SwarmSDK
         return @explicit_context_window if @explicit_context_window
         return @real_model_info.context_window if @real_model_info&.context_window
 
-        model.context_window
+        internal_model.context_window
       rescue StandardError
         nil
       end
@@ -681,14 +685,13 @@ module SwarmSDK
       #
       # This hook intercepts all tool executions to:
       # - Trigger pre_tool_use hooks (can block, replace, or finish)
-      # - Add retry logic
       # - Trigger post_tool_use hooks (can transform results)
       # - Handle finish markers
       def setup_tool_execution_hook
         @llm_chat.around_tool_execution do |tool_call, _tool_instance, execute|
           # Skip hooks for delegation tools (they have their own events)
           if delegation_tool_call?(tool_call)
-            execute_with_retry { execute.call }
+            execute.call
           else
             # PRE-HOOK
             pre_result = trigger_pre_tool_use(tool_call)
@@ -705,8 +708,8 @@ module SwarmSDK
               end
             end
 
-            # EXECUTE with retry logic
-            result = execute_with_retry { execute.call }
+            # EXECUTE tool (no retry - failures are returned to LLM)
+            result = execute.call
 
             # POST-HOOK
             post_result = trigger_post_tool_use(result, tool_call: tool_call)
@@ -752,6 +755,32 @@ module SwarmSDK
         end
       end
 
+      # --- LLM Request Hook ---
+
+      # Setup around_llm_request hook for ephemeral message injection
+      #
+      # This hook intercepts all LLM API calls to:
+      # - Inject ephemeral content (system reminders) that shouldn't be persisted
+      # - Clear ephemeral content after each LLM call
+      # - Add retry logic for transient failures
+      def setup_llm_request_hook
+        @llm_chat.around_llm_request do |messages, &send_request|
+          # Inject ephemeral content (system reminders, etc.)
+          # These are sent to LLM but NOT persisted in message history
+          prepared_messages = @context_manager.prepare_for_llm(messages)
+
+          # Make the actual LLM API call with retry logic
+          response = call_llm_with_retry do
+            send_request.call(prepared_messages)
+          end
+
+          # Clear ephemeral content after successful call
+          @context_manager.clear_ephemeral
+
+          response
+        end
+      end
+
       # --- Semaphore and Reminder Management ---
 
       # Execute block with global semaphore
@@ -763,51 +792,6 @@ module SwarmSDK
           @global_semaphore.acquire(&block)
         else
           yield
-        end
-      end
-
-      # Build prompt with system reminders
-      #
-      # @param prompt [String] Original user prompt
-      # @param is_first [Boolean] Whether this is the first message
-      # @return [String] Prompt with embedded reminders
-      def build_prompt_with_reminders(prompt, is_first)
-        if is_first
-          # Collect plugin reminders
-          plugin_reminders = collect_plugin_reminders(prompt, is_first_message: true)
-
-          # Build full prompt with embedded plugin reminders
-          full_prompt = prompt
-          plugin_reminders.each do |reminder|
-            full_prompt = "#{full_prompt}\n\n#{reminder}"
-          end
-
-          # Add toolset reminder and after-first-message reminder
-          parts = [
-            full_prompt,
-            build_toolset_reminder,
-          ]
-
-          # Only include todo list reminder if agent has TodoWrite tool
-          parts << SystemReminderInjector::AFTER_FIRST_MESSAGE_REMINDER if has_tool?(:TodoWrite)
-
-          parts.join("\n\n")
-        else
-          full_prompt = prompt
-
-          # Add periodic TodoWrite reminder if needed
-          if has_tool?(:TodoWrite) && SystemReminderInjector.should_inject_todowrite_reminder?(self, @last_todowrite_message_index)
-            full_prompt = "#{full_prompt}\n\n#{SystemReminderInjector::TODOWRITE_PERIODIC_REMINDER}"
-            @last_todowrite_message_index = SystemReminderInjector.find_last_todowrite_index(self)
-          end
-
-          # Collect plugin reminders
-          plugin_reminders = collect_plugin_reminders(full_prompt, is_first_message: false)
-          plugin_reminders.each do |reminder|
-            full_prompt = "#{full_prompt}\n\n#{reminder}"
-          end
-
-          full_prompt
         end
       end
 
@@ -842,7 +826,7 @@ module SwarmSDK
             message = RubyLLM::Message.new(
               role: :assistant,
               content: response[:message],
-              model_id: model.id,
+              model_id: model_id,
             )
             @context_tracker.finish_reason_override = "finish_agent" if @context_tracker
             emit(:end_message, message)
@@ -859,13 +843,15 @@ module SwarmSDK
         end
       end
 
-      # --- Retry Logic ---
+      # --- LLM Call Retry Logic ---
 
-      # Execute with retry logic for transient failures
+      # Call LLM provider with retry logic for transient failures
       #
-      # @yield Block that performs the operation
+      # @param max_retries [Integer] Maximum retry attempts
+      # @param delay [Integer] Delay between retries in seconds
+      # @yield Block that performs the LLM call
       # @return [Object] Result from block
-      def execute_with_retry(max_retries: 3, delay: 2, &block)
+      def call_llm_with_retry(max_retries: 10, delay: 10, &block)
         attempts = 0
 
         loop do
@@ -875,21 +861,35 @@ module SwarmSDK
             return yield
           rescue StandardError => e
             if attempts >= max_retries
-              return "Error after #{max_retries} retries: #{e.message}"
+              LogStream.emit(
+                type: "llm_retry_exhausted",
+                agent: @agent_name,
+                swarm_id: @agent_context&.swarm_id,
+                parent_swarm_id: @agent_context&.parent_swarm_id,
+                model: model_id,
+                attempts: attempts,
+                error_class: e.class.name,
+                error_message: e.message,
+                error_backtrace: e.backtrace,
+              )
+              raise
             end
 
             LogStream.emit(
-              type: "tool_retry_attempt",
+              type: "llm_retry_attempt",
               agent: @agent_name,
               swarm_id: @agent_context&.swarm_id,
+              parent_swarm_id: @agent_context&.parent_swarm_id,
+              model: model_id,
               attempt: attempts,
               max_retries: max_retries,
               error_class: e.class.name,
               error_message: e.message,
+              error_backtrace: e.backtrace,
               retry_delay: delay,
             )
 
-            sleep(delay * attempts) # Exponential backoff
+            sleep(delay)
           end
         end
       end
@@ -976,11 +976,11 @@ module SwarmSDK
         return self if params.nil? || params.empty?
 
         if params[:temperature]
-          with_temperature(params[:temperature])
+          @llm_chat.with_temperature(params[:temperature])
           params = params.except(:temperature)
         end
 
-        with_params(**params) if params.any?
+        @llm_chat.with_params(**params) if params.any?
 
         self
       end
@@ -992,7 +992,7 @@ module SwarmSDK
       def configure_headers(custom_headers)
         return self if custom_headers.nil? || custom_headers.empty?
 
-        with_headers(**custom_headers)
+        @llm_chat.with_headers(**custom_headers)
 
         self
       end

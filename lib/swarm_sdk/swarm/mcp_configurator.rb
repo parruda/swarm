@@ -40,7 +40,7 @@ module SwarmSDK
           # Fetch tools from MCP server and register with chat
           # Tools are already in RubyLLM::Tool format
           tools = client.tools
-          tools.each { |tool| chat.with_tool(tool) }
+          tools.each { |tool| chat.add_tool(tool) }
 
           RubyLLM.logger.debug("SwarmSDK: Registered #{tools.size} tools from MCP server '#{server_config[:name]}' for agent #{agent_name}")
         rescue StandardError => e
