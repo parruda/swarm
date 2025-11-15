@@ -133,16 +133,16 @@ module SwarmSDK
       # Create mock agent chat
       mock_chat = Minitest::Mock.new
 
-      # Create delegate tool with call_stack
-      call_stack = ["agent_a", "agent_b"]
+      # Set up the delegation call stack on the swarm (simulating an existing delegation chain)
+      swarm.delegation_call_stack.push("agent_a")
+      swarm.delegation_call_stack.push("agent_b")
+
       tool = Tools::Delegate.new(
         delegate_name: "agent_a", # Try to delegate back to agent_a
         delegate_description: "Test agent",
         delegate_chat: mock_chat,
         agent_name: :agent_b,
         swarm: swarm,
-        hook_registry: Hooks::Registry.new,
-        call_stack: call_stack,
       )
 
       # Execute should detect circular dependency

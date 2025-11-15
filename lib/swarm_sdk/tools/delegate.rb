@@ -12,6 +12,20 @@ module SwarmSDK
       # Change this to customize the tool naming pattern (e.g., "DelegateTaskTo", "AskAgent", etc.)
       TOOL_NAME_PREFIX = "WorkWith"
 
+      class << self
+        # Generate tool name for a delegate agent
+        #
+        # This is the single source of truth for delegation tool naming.
+        # Used both when creating Delegate instances and when predicting tool names
+        # for agent context setup.
+        #
+        # @param delegate_name [String, Symbol] Name of the delegate agent
+        # @return [String] Tool name (e.g., "WorkWithBackend")
+        def tool_name_for(delegate_name)
+          "#{TOOL_NAME_PREFIX}#{delegate_name.to_s.capitalize}"
+        end
+      end
+
       attr_reader :delegate_name, :delegate_target, :tool_name
 
       # Initialize a delegation tool
@@ -20,10 +34,7 @@ module SwarmSDK
       # @param delegate_description [String] Description of the delegate agent
       # @param delegate_chat [AgentChat, nil] The chat instance for the delegate agent (nil if delegating to swarm)
       # @param agent_name [Symbol, String] Name of the agent using this tool
-      # @param swarm [Swarm] The swarm instance
-      # @param hook_registry [Hooks::Registry] Registry for callbacks
-      # @param call_stack [Array] Delegation call stack for circular dependency detection
-      # @param swarm_registry [SwarmRegistry, nil] Registry for sub-swarms (nil if not using composable swarms)
+      # @param swarm [Swarm] The swarm instance (provides hook_registry, delegation_call_stack, swarm_registry)
       # @param delegating_chat [Agent::Chat, nil] The chat instance of the agent doing the delegating (for accessing hooks)
       def initialize(
         delegate_name:,
@@ -31,9 +42,6 @@ module SwarmSDK
         delegate_chat:,
         agent_name:,
         swarm:,
-        hook_registry:,
-        call_stack:,
-        swarm_registry: nil,
         delegating_chat: nil
       )
         super()
@@ -43,13 +51,10 @@ module SwarmSDK
         @delegate_chat = delegate_chat
         @agent_name = agent_name
         @swarm = swarm
-        @hook_registry = hook_registry
-        @call_stack = call_stack
-        @swarm_registry = swarm_registry
         @delegating_chat = delegating_chat
 
-        # Generate tool name in the expected format: #{TOOL_NAME_PREFIX}[AgentName]
-        @tool_name = "#{TOOL_NAME_PREFIX}#{delegate_name.to_s.capitalize}"
+        # Generate tool name using canonical method
+        @tool_name = self.class.tool_name_for(delegate_name)
         @delegate_target = delegate_name.to_s
       end
 
@@ -73,10 +78,15 @@ module SwarmSDK
       # @param message [String] Message to send to the agent
       # @return [String] Result from delegate agent or error message
       def execute(message:)
+        # Access swarm infrastructure
+        call_stack = @swarm.delegation_call_stack
+        hook_registry = @swarm.hook_registry
+        swarm_registry = @swarm.swarm_registry
+
         # Check for circular dependency
-        if @call_stack.include?(@delegate_target)
-          emit_circular_warning
-          return "Error: Circular delegation detected: #{@call_stack.join(" -> ")} -> #{@delegate_target}. " \
+        if call_stack.include?(@delegate_target)
+          emit_circular_warning(call_stack)
+          return "Error: Circular delegation detected: #{call_stack.join(" -> ")} -> #{@delegate_target}. " \
             "Please restructure your delegation to avoid infinite loops."
         end
 
@@ -100,7 +110,7 @@ module SwarmSDK
           },
         )
 
-        executor = Hooks::Executor.new(@hook_registry, logger: RubyLLM.logger)
+        executor = Hooks::Executor.new(hook_registry, logger: RubyLLM.logger)
         pre_agent_hooks = agent_hooks[:pre_delegation] || []
         result = executor.execute_safe(event: :pre_delegation, context: context, callbacks: pre_agent_hooks)
 
@@ -114,10 +124,10 @@ module SwarmSDK
         # Determine delegation type and proceed
         delegation_result = if @delegate_chat
           # Delegate to agent
-          delegate_to_agent(message)
-        elsif @swarm_registry&.registered?(@delegate_target)
+          delegate_to_agent(message, call_stack)
+        elsif swarm_registry&.registered?(@delegate_target)
           # Delegate to registered swarm
-          delegate_to_swarm(message)
+          delegate_to_swarm(message, call_stack, swarm_registry)
         else
           raise ConfigurationError, "Unknown delegation target: #{@delegate_target}"
         end
@@ -195,29 +205,32 @@ module SwarmSDK
       # Delegate to an agent
       #
       # @param message [String] Message to send to the agent
+      # @param call_stack [Array] Delegation call stack for circular dependency detection
       # @return [String] Result from agent
-      def delegate_to_agent(message)
+      def delegate_to_agent(message, call_stack)
         # Push delegate target onto call stack to track delegation chain
-        @call_stack.push(@delegate_target)
+        call_stack.push(@delegate_target)
         begin
           response = @delegate_chat.ask(message, source: "delegation")
           response.content
         ensure
           # Always pop from stack, even if delegation fails
-          @call_stack.pop
+          call_stack.pop
         end
       end
 
       # Delegate to a registered swarm
       #
       # @param message [String] Message to send to the swarm
+      # @param call_stack [Array] Delegation call stack for circular dependency detection
+      # @param swarm_registry [SwarmRegistry] Registry for sub-swarms
       # @return [String] Result from swarm's lead agent
-      def delegate_to_swarm(message)
+      def delegate_to_swarm(message, call_stack, swarm_registry)
         # Load sub-swarm (lazy load + cache)
-        subswarm = @swarm_registry.load_swarm(@delegate_target)
+        subswarm = swarm_registry.load_swarm(@delegate_target)
 
         # Push delegate target onto call stack to track delegation chain
-        @call_stack.push(@delegate_target)
+        call_stack.push(@delegate_target)
         begin
           # Execute sub-swarm's lead agent
           lead_agent = subswarm.agents[subswarm.lead_agent]
@@ -225,26 +238,27 @@ module SwarmSDK
           result = response.content
 
           # Reset if keep_context: false
-          @swarm_registry.reset_if_needed(@delegate_target)
+          swarm_registry.reset_if_needed(@delegate_target)
 
           result
         ensure
           # Always pop from stack, even if delegation fails
-          @call_stack.pop
+          call_stack.pop
         end
       end
 
       # Emit circular dependency warning event
       #
+      # @param call_stack [Array] Current delegation call stack
       # @return [void]
-      def emit_circular_warning
+      def emit_circular_warning(call_stack)
         LogStream.emit(
           type: "delegation_circular_dependency",
           agent: @agent_name,
           swarm_id: @swarm.swarm_id,
           parent_swarm_id: @swarm.parent_swarm_id,
           target: @delegate_target,
-          call_stack: @call_stack,
+          call_stack: call_stack,
           timestamp: Time.now.utc.iso8601,
         )
       end

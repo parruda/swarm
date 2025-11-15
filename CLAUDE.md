@@ -292,6 +292,51 @@ require "swarm_sdk/configuration"  # Don't do this!
 - Tests should be fast and isolated
 - No stdout/stderr output in tests
 
+## Ruby Documentation Standards
+
+### YARD Documentation Requirements
+
+All Ruby code MUST include comprehensive YARD documentation. Follow these rules:
+
+#### Required for ALL Public Methods:
+- `@param` for each parameter with type annotation
+- `@return` with type annotation (use multiple if different return types possible)
+- `@raise` for any exceptions that may be raised
+- At least one `@example` showing typical usage
+- `@note` for important behavioral details or side effects
+
+#### Required for Complex Methods:
+- `@option` for each hash option parameter
+- Multiple `@example` blocks showing different use cases
+- `@see` links to related methods
+- Performance considerations if relevant
+
+#### Method Documentation Template:
+```ruby
+# Brief one-line description
+#
+# Optional longer description explaining the method's purpose,
+# important details, or context.
+#
+# @param name [Type] description
+# @param options [Hash] optional parameters
+# @option options [Type] :key description
+#
+# @return [Type] description of return value
+# @raise [ExceptionType] when this exception occurs
+#
+# @example Basic usage
+#   code_example
+#
+# @example Advanced usage
+#   code_example
+#
+# @note Important behavioral detail
+# @see #related_method
+def method_name(name, options = {})
+end
+```
+
 ## Key Concepts
 
 ### SwarmSDK Concepts

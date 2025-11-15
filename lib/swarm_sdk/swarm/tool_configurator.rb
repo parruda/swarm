@@ -141,14 +141,8 @@ module SwarmSDK
           # Create tool instance
           tool_instance = create_tool_instance(tool_name, agent_name, agent_definition.directory)
 
-          # Wrap with permissions validator if configured
-          tool_instance = wrap_tool_with_permissions(
-            tool_instance,
-            permissions_config,
-            agent_definition,
-          )
-
-          chat.add_tool(tool_instance)
+          # Wrap with permissions and add to chat
+          wrap_and_add_tool(chat, tool_instance, permissions_config, agent_definition)
         end
       end
 
@@ -195,19 +189,36 @@ module SwarmSDK
         return if tool_disabled?(tool_name, agent_definition.disable_default_tools)
 
         tool_instance = create_tool_instance(tool_name, agent_name, agent_definition.directory)
+        permissions_config = resolve_default_permissions(tool_name, agent_definition)
 
-        # Resolve permissions for default tool
-        permissions_config = agent_definition.agent_permissions[tool_name] ||
-          agent_definition.default_permissions[tool_name]
+        wrap_and_add_tool(chat, tool_instance, permissions_config, agent_definition)
+      end
 
-        # Wrap with permissions validator if configured
-        tool_instance = wrap_tool_with_permissions(
-          tool_instance,
-          permissions_config,
-          agent_definition,
-        )
-
+      # Wrap tool with permissions and add to chat
+      #
+      # This is the common pattern for registering tools:
+      # 1. Wrap with permissions validator (if configured)
+      # 2. Add to chat
+      #
+      # @param chat [Agent::Chat] The chat instance
+      # @param tool_instance [RubyLLM::Tool] Tool instance
+      # @param permissions_config [Hash, nil] Permissions configuration
+      # @param agent_definition [Agent::Definition] Agent definition
+      # @return [void]
+      def wrap_and_add_tool(chat, tool_instance, permissions_config, agent_definition)
+        tool_instance = wrap_tool_with_permissions(tool_instance, permissions_config, agent_definition)
         chat.add_tool(tool_instance)
+      end
+
+      # Resolve permissions for a default/plugin tool
+      #
+      # Looks up permissions in agent-specific config first, falls back to global defaults.
+      #
+      # @param tool_name [Symbol] Tool name
+      # @param agent_definition [Agent::Definition] Agent definition
+      # @return [Hash, nil] Permissions configuration or nil
+      def resolve_default_permissions(tool_name, agent_definition)
+        agent_definition.agent_permissions[tool_name] || agent_definition.default_permissions[tool_name]
       end
 
       # Create a tool instance via plugin
@@ -258,10 +269,6 @@ module SwarmSDK
           # Check if plugin has storage enabled for this agent
           next unless plugin.storage_enabled?(agent_definition)
 
-          # Get plugin storage for this agent
-          plugin_storages = @plugin_storages[plugin.name] || {}
-          plugin_storages[agent_name]
-
           # Register each tool provided by the plugin
           plugin.tools.each do |tool_name|
             # Skip if already registered explicitly
@@ -278,18 +285,9 @@ module SwarmSDK
               agent_definition: agent_definition,
             )
 
-            # Resolve permissions for plugin tool
-            permissions_config = agent_definition.agent_permissions[tool_name] ||
-              agent_definition.default_permissions[tool_name]
+            permissions_config = resolve_default_permissions(tool_name, agent_definition)
 
-            # Wrap with permissions validator if configured
-            tool_instance = wrap_tool_with_permissions(
-              tool_instance,
-              permissions_config,
-              agent_definition,
-            )
-
-            chat.add_tool(tool_instance)
+            wrap_and_add_tool(chat, tool_instance, permissions_config, agent_definition)
           end
         end
       end
@@ -349,7 +347,6 @@ module SwarmSDK
             delegate_chat: delegate_agent,
             agent_name: agent_name,
             swarm: @swarm,
-            hook_registry: @hook_registry,
             delegating_chat: chat,
           )
 

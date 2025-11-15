@@ -10,6 +10,48 @@ module SwarmSDK
     # - RubyLLM::Chat handles: LLM API, messages, tools, concurrent execution
     # - SwarmSDK::Agent::Chat adds: hooks, reminders, semaphores, event enrichment
     #
+    # ## ChatHelpers Module Architecture
+    #
+    # Chat is decomposed into 8 focused helper modules to manage complexity:
+    #
+    # ### Core Functionality
+    # - **EventEmitter**: Multi-subscriber event callbacks for tool/lifecycle events.
+    #   Provides `subscribe`, `emit_event`, `clear_subscribers` for observable behavior.
+    # - **LoggingHelpers**: Formatting tool call information for structured JSON logs.
+    #   Converts tool calls/results to loggable hashes with sanitization.
+    # - **LlmConfiguration**: Model selection, provider setup, and API configuration.
+    #   Resolves provider from model, handles model aliases, builds connection config.
+    # - **SystemReminders**: Dynamic system message injection based on agent state.
+    #   Collects reminders from plugins, context trackers, and other sources.
+    #
+    # ### Cross-Cutting Concerns
+    # - **Instrumentation**: LLM API request/response logging via Faraday middleware.
+    #   Wraps HTTP calls to capture timing, tokens, and error information.
+    # - **HookIntegration**: Pre/post tool execution callbacks and delegation hooks.
+    #   Integrates with SwarmSDK Hooks::Registry for lifecycle events.
+    # - **TokenTracking**: Usage statistics and cost calculation per conversation.
+    #   Accumulates input/output tokens across all LLM calls.
+    #
+    # ### State Management
+    # - **Serialization**: Snapshot/restore for session persistence.
+    #   Saves/restores message history, tool states, and agent context.
+    #
+    # ## Module Dependencies
+    #
+    #   EventEmitter <-- HookIntegration (event emission for hooks)
+    #   TokenTracking <-- Instrumentation (usage data collection)
+    #   SystemReminders <-- uses ContextTracker instance (not a module)
+    #   LoggingHelpers <-- EventEmitter (log event formatting)
+    #
+    # ## Design Rationale
+    #
+    # This decomposition follows Single Responsibility Principle. Each module
+    # handles one concern. They access shared Chat internals (@llm_chat,
+    # @messages, etc.) which makes them tightly coupled to Chat, but this keeps
+    # the main Chat class focused on orchestration rather than implementation
+    # details. The modules are intentionally NOT standalone - they augment
+    # Chat with specific capabilities.
+    #
     # ## Rate Limiting Strategy
     #
     # Two-level semaphore system prevents API quota exhaustion in hierarchical agent trees:
@@ -20,6 +62,11 @@ module SwarmSDK
     #
     # RubyLLM events → SwarmSDK subscribes → enriches with context → emits SwarmSDK events
     # This allows hooks to fire on SwarmSDK events with full agent context.
+    #
+    # @see ChatHelpers::EventEmitter Event subscription and emission
+    # @see ChatHelpers::Instrumentation API logging via Faraday middleware
+    # @see ChatHelpers::Serialization State persistence (snapshot/restore)
+    # @see ChatHelpers::HookIntegration Pre/post tool execution callbacks
     class Chat
       # Include event emitter for multi-subscriber callbacks
       include ChatHelpers::EventEmitter

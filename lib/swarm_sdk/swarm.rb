@@ -75,7 +75,7 @@ module SwarmSDK
     # Default tools available to all agents
     DEFAULT_TOOLS = ToolConfigurator::DEFAULT_TOOLS
 
-    attr_reader :name, :agents, :lead_agent, :mcp_clients, :delegation_instances, :agent_definitions, :swarm_id, :parent_swarm_id, :swarm_registry, :scratchpad_storage, :allow_filesystem_tools
+    attr_reader :name, :agents, :lead_agent, :mcp_clients, :delegation_instances, :agent_definitions, :swarm_id, :parent_swarm_id, :swarm_registry, :scratchpad_storage, :allow_filesystem_tools, :hook_registry, :global_semaphore, :plugin_storages, :config_for_hooks
     attr_accessor :delegation_call_stack
 
     # Check if scratchpad tools are enabled
@@ -565,15 +565,7 @@ module SwarmSDK
     def initialize_agents
       return if @agents_initialized
 
-      initializer = AgentInitializer.new(
-        self,
-        @agent_definitions,
-        @global_semaphore,
-        @hook_registry,
-        @scratchpad_storage,
-        @plugin_storages,
-        config_for_hooks: @config_for_hooks,
-      )
+      initializer = AgentInitializer.new(self)
 
       @agents = initializer.initialize_all
       @agent_contexts = initializer.agent_contexts
@@ -630,7 +622,7 @@ module SwarmSDK
 
     # Create delegation tool (delegates to AgentInitializer)
     def create_delegation_tool(name:, description:, delegate_chat:, agent_name:)
-      AgentInitializer.new(self, @agent_definitions, @global_semaphore, @hook_registry, @scratchpad_storage, @plugin_storages)
+      AgentInitializer.new(self)
         .create_delegation_tool(name: name, description: description, delegate_chat: delegate_chat, agent_name: agent_name)
     end
 
