@@ -175,5 +175,22 @@ module SwarmSDK
       # reporting important issues.
       MCP_LOG_LEVEL = Logger::WARN
     end
+
+    # Agent configuration defaults
+    #
+    # Default values for agent configuration when not explicitly specified.
+    module Agent
+      # Default LLM model identifier
+      #
+      # OpenAI's GPT-5 is used as the default model. This can be overridden
+      # per-agent or globally via all_agents configuration.
+      MODEL = "gpt-5"
+
+      # Default LLM provider
+      #
+      # OpenAI is the default provider. Supported providers include:
+      # openai, anthropic, gemini, deepseek, openrouter, bedrock, etc.
+      PROVIDER = "openai"
+    end
   end
 end

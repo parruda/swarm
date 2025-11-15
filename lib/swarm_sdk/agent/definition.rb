@@ -18,11 +18,10 @@ module SwarmSDK
     #     system_prompt: "You build APIs"
     #   })
     class Definition
-      DEFAULT_MODEL = "gpt-5"
-      DEFAULT_PROVIDER = "openai"
-      # Backward compatibility alias - use Defaults::Timeouts::AGENT_REQUEST_SECONDS for new code
+      # Backward compatibility aliases - use Defaults:: constants for new code
+      DEFAULT_MODEL = Defaults::Agent::MODEL
+      DEFAULT_PROVIDER = Defaults::Agent::PROVIDER
       DEFAULT_TIMEOUT = Defaults::Timeouts::AGENT_REQUEST_SECONDS
-      BASE_SYSTEM_PROMPT_PATH = File.expand_path("../prompts/base_system_prompt.md.erb", __dir__)
 
       attr_reader :name,
         :description,
@@ -286,117 +285,15 @@ module SwarmSDK
       end
 
       def build_full_system_prompt(custom_prompt)
-        # Build the base prompt based on coding_agent setting
-        prompt = if @coding_agent
-          # Coding agent: include full base prompt
-          rendered_base = render_base_system_prompt
-
-          if custom_prompt && !custom_prompt.strip.empty?
-            "#{rendered_base}\n\n#{custom_prompt}"
-          else
-            rendered_base
-          end
-        elsif default_tools_enabled?
-          # Non-coding agent: optionally include TODO/Scratchpad sections if default tools available
-          non_coding_base = render_non_coding_base_prompt
-
-          if custom_prompt && !custom_prompt.strip.empty?
-            # Prepend TODO/Scratchpad info before custom prompt
-            "#{non_coding_base}\n\n#{custom_prompt}"
-          else
-            # No custom prompt: just return TODO/Scratchpad info
-            non_coding_base
-          end
-        else
-          # No default tools: return only custom prompt
-          (custom_prompt || "").to_s
-        end
-
-        # Append plugin contributions to system prompt
-        plugin_contributions = collect_plugin_prompt_contributions
-        if plugin_contributions.any?
-          combined_contributions = plugin_contributions.join("\n\n")
-          prompt = if prompt && !prompt.strip.empty?
-            "#{prompt}\n\n#{combined_contributions}"
-          else
-            combined_contributions
-          end
-        end
-
-        prompt
-      end
-
-      # Check if default tools are enabled (i.e., not disabled)
-      #
-      # @return [Boolean] True if default tools should be included
-      def default_tools_enabled?
-        @disable_default_tools != true
-      end
-
-      def render_base_system_prompt
-        cwd = @directory || Dir.pwd
-        platform = RUBY_PLATFORM
-        os_version = begin
-          %x(uname -sr 2>/dev/null).strip
-        rescue
-          RUBY_PLATFORM
-        end
-        date = Time.now.strftime("%Y-%m-%d")
-
-        template_content = File.read(BASE_SYSTEM_PROMPT_PATH)
-        ERB.new(template_content).result(binding)
-      end
-
-      # Collect system prompt contributions from all plugins
-      #
-      # Asks each registered plugin if it wants to contribute to the system prompt.
-      # Plugins can return custom instructions based on their configuration.
-      #
-      # @return [Array<String>] Array of prompt contributions from plugins
-      def collect_plugin_prompt_contributions
-        contributions = []
-
-        PluginRegistry.all.each do |plugin|
-          # Check if plugin has storage enabled for this agent
-          next unless plugin.storage_enabled?(self)
-
-          # Ask plugin for prompt contribution
-          # Note: storage is not available yet at this point, so we pass nil
-          contribution = plugin.system_prompt_contribution(agent_definition: self, storage: nil)
-          contributions << contribution if contribution && !contribution.strip.empty?
-        end
-
-        contributions
-      end
-
-      def render_non_coding_base_prompt
-        # Simplified base prompt for non-coding agents
-        # Includes environment info only
-        # Does not steer towards coding tasks
-        cwd = @directory || Dir.pwd
-        platform = RUBY_PLATFORM
-        os_version = begin
-          %x(uname -sr 2>/dev/null).strip
-        rescue
-          RUBY_PLATFORM
-        end
-        date = Time.now.strftime("%Y-%m-%d")
-
-        <<~PROMPT.strip
-          # Today's date
-
-          <today-date>
-          #{date}
-          #</today-date>
-
-          # Current Environment
-
-          <env>
-          Working directory: #{cwd}
-          Platform: #{platform}
-          OS Version: #{os_version}
-          </env>
-        PROMPT
+        # Delegate to SystemPromptBuilder for all prompt construction logic
+        # This keeps Definition focused on data storage while extracting complex logic
+        SystemPromptBuilder.build(
+          custom_prompt: custom_prompt,
+          coding_agent: @coding_agent,
+          disable_default_tools: @disable_default_tools,
+          directory: @directory,
+          definition: self,
+        )
       end
 
       def parse_directory(directory_config)
