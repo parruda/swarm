@@ -348,14 +348,35 @@ module SwarmSDK
           digest = case tool_call.name
           when "Read"
             Tools::Stores::ReadTracker.get_read_files(@agent_context.name)[File.expand_path(path)]
-          when "MemoryRead"
-            # Only query if SwarmMemory is loaded (optional dependency)
-            if defined?(SwarmMemory::Core::StorageReadTracker)
-              SwarmMemory::Core::StorageReadTracker.get_read_entries(@agent_context.name)[path]
-            end
+          else
+            # Query registered plugins for digest (e.g., MemoryRead from SwarmMemory plugin)
+            query_plugin_for_digest(tool_call.name, path)
           end
 
           digest ? { read_digest: digest, read_path: path } : {}
+        end
+
+        # Query registered plugins for a tool result digest
+        #
+        # This allows plugins to provide digest tracking for their own tools
+        # (e.g., MemoryRead tracking in SwarmMemory plugin).
+        #
+        # @param tool_name [String] Name of the tool
+        # @param path [String] Path or identifier of the resource
+        # @return [String, nil] Digest from first plugin that responds, or nil
+        def query_plugin_for_digest(tool_name, path)
+          return unless @agent_context
+
+          PluginRegistry.all.each do |plugin|
+            digest = plugin.get_tool_result_digest(
+              agent_name: @agent_context.name,
+              tool_name: tool_name,
+              path: path,
+            )
+            return digest if digest
+          end
+
+          nil
         end
 
         # Wrap a tool result in our Hooks::ToolResult value object

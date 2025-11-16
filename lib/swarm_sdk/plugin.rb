@@ -256,5 +256,26 @@ module SwarmSDK
     def restore_agent_state(agent_name, state)
       # Override if needed
     end
+
+    # Get digest for a tool result (e.g., file hash, memory entry hash)
+    #
+    # Called during tool result metadata collection. Returns a digest
+    # that can be used to detect if the resource has changed since
+    # it was last read. This enables change detection hooks.
+    #
+    # @param agent_name [Symbol] Agent identifier
+    # @param tool_name [String] Name of the tool (e.g., "MemoryRead")
+    # @param path [String] Path or identifier of the resource
+    # @return [String, nil] Digest string or nil if not tracked by this plugin
+    #
+    # @example Memory read tracking
+    #   def get_tool_result_digest(agent_name:, tool_name:, path:)
+    #     return unless tool_name == "MemoryRead"
+    #
+    #     StorageReadTracker.get_read_entries(agent_name)[path]
+    #   end
+    def get_tool_result_digest(agent_name:, tool_name:, path:)
+      nil
+    end
   end
 end

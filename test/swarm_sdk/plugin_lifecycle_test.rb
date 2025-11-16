@@ -184,6 +184,91 @@ module SwarmSDK
       refute_includes(plugin.events, :on_swarm_stopped)
     end
 
+    # Test 9: get_tool_result_digest returns nil by default
+    def test_get_tool_result_digest_returns_nil_by_default
+      plugin = MinimalPlugin.new(:minimal)
+
+      # Base Plugin class returns nil for get_tool_result_digest
+      result = plugin.get_tool_result_digest(
+        agent_name: :test_agent,
+        tool_name: "SomeTool",
+        path: "/some/path",
+      )
+
+      assert_nil(result)
+    end
+
+    # Test 10: get_tool_result_digest can be overridden by plugin
+    def test_get_tool_result_digest_can_be_overridden
+      plugin = DigestTrackingPlugin.new(:digest_tracker)
+
+      # Plugin tracks digests for "CustomRead" tool
+      result = plugin.get_tool_result_digest(
+        agent_name: :test_agent,
+        tool_name: "CustomRead",
+        path: "/tracked/path",
+      )
+
+      assert_equal("digest_for_/tracked/path", result)
+    end
+
+    # Test 11: get_tool_result_digest returns nil for unhandled tools
+    def test_get_tool_result_digest_returns_nil_for_unhandled_tool
+      plugin = DigestTrackingPlugin.new(:digest_tracker)
+
+      # Plugin only handles "CustomRead", not other tools
+      result = plugin.get_tool_result_digest(
+        agent_name: :test_agent,
+        tool_name: "OtherTool",
+        path: "/tracked/path",
+      )
+
+      assert_nil(result)
+    end
+
+    # Test 12: PluginRegistry.all allows querying multiple plugins for digest
+    def test_plugin_registry_allows_querying_plugins_for_digest
+      plugin1 = MinimalPlugin.new(:no_digest)
+      plugin2 = DigestTrackingPlugin.new(:has_digest)
+      plugin3 = MinimalPlugin.new(:also_no_digest)
+      PluginRegistry.register(plugin1)
+      PluginRegistry.register(plugin2)
+      PluginRegistry.register(plugin3)
+
+      # Query all plugins to find first non-nil digest (simulates hook_integration behavior)
+      digest = nil
+      PluginRegistry.all.each do |plugin|
+        result = plugin.get_tool_result_digest(
+          agent_name: :test_agent,
+          tool_name: "CustomRead",
+          path: "/tracked/path",
+        )
+        if result
+          digest = result
+          break
+        end
+      end
+
+      # Should find digest from plugin2
+      assert_equal("digest_for_/tracked/path", digest)
+
+      # Should return nil for unhandled tools
+      other_digest = nil
+      PluginRegistry.all.each do |plugin|
+        result = plugin.get_tool_result_digest(
+          agent_name: :test_agent,
+          tool_name: "UnknownTool",
+          path: "/some/path",
+        )
+        if result
+          other_digest = result
+          break
+        end
+      end
+
+      assert_nil(other_digest)
+    end
+
     private
 
     def build_test_swarm
@@ -274,6 +359,28 @@ module SwarmSDK
       end
 
       # Intentionally does NOT implement on_swarm_started or on_swarm_stopped
+    end
+
+    # Plugin that tracks digests for custom tools
+    class DigestTrackingPlugin < Plugin
+      def initialize(name)
+        super()
+        @plugin_name = name
+      end
+
+      def name
+        @plugin_name
+      end
+
+      def tools
+        []
+      end
+
+      def get_tool_result_digest(agent_name:, tool_name:, path:)
+        return unless tool_name == "CustomRead"
+
+        "digest_for_#{path}"
+      end
     end
   end
 end

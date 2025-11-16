@@ -251,6 +251,21 @@ module SwarmMemory
         Core::StorageReadTracker.restore_read_entries(agent_name, entries)
       end
 
+      # Get digest for a memory tool result
+      #
+      # Returns the digest for a MemoryRead tool call, enabling change detection
+      # hooks to know if a memory entry has been modified since last read.
+      #
+      # @param agent_name [Symbol] Agent identifier
+      # @param tool_name [String] Name of the tool
+      # @param path [String] Path of the memory entry
+      # @return [String, nil] Digest string or nil if not a memory tool
+      def get_tool_result_digest(agent_name:, tool_name:, path:)
+        return unless tool_name == "MemoryRead"
+
+        Core::StorageReadTracker.get_read_entries(agent_name)[path]
+      end
+
       # Lifecycle: Agent initialized
       #
       # Filters tools by mode (removing non-mode tools), registers LoadSkill,
