@@ -220,6 +220,37 @@ module SwarmMemory
         { memory: agent_definition.memory }
       end
 
+      # Snapshot plugin-specific state for an agent
+      #
+      # Captures memory read tracking state for session persistence.
+      # This allows agents to remember which memory entries they've read
+      # across sessions.
+      #
+      # @param agent_name [Symbol] Agent identifier
+      # @return [Hash] Plugin-specific state
+      def snapshot_agent_state(agent_name)
+        entries_with_digests = Core::StorageReadTracker.get_read_entries(agent_name)
+        return {} if entries_with_digests.empty?
+
+        { read_entries: entries_with_digests }
+      end
+
+      # Restore plugin-specific state for an agent
+      #
+      # Restores memory read tracking state from snapshot.
+      # This is idempotent - calling multiple times with same state
+      # produces the same result.
+      #
+      # @param agent_name [Symbol] Agent identifier
+      # @param state [Hash] Previously snapshotted state (with symbol keys)
+      # @return [void]
+      def restore_agent_state(agent_name, state)
+        entries = state[:read_entries] || state["read_entries"]
+        return unless entries
+
+        Core::StorageReadTracker.restore_read_entries(agent_name, entries)
+      end
+
       # Lifecycle: Agent initialized
       #
       # Filters tools by mode (removing non-mode tools), registers LoadSkill,

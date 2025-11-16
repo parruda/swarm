@@ -706,47 +706,123 @@ module SwarmSDK
       assert_predicate(result, :success?)
     end
 
-    # ========== Memory Tracking Restore Tests ==========
+    # ========== Version 2.1.0 Plugin State Tests ==========
 
-    def test_restore_memory_tracking_single_agent
-      memory_tracking_data = {
-        alice: {
-          "/entry1" => "digest1",
-          "/entry2" => "digest2",
+    def test_version_210_accepted
+      snapshot_data = create_valid_snapshot_hash(agents: [:alice], version: "2.1.0")
+      mock_swarm = create_mock_swarm(agents: [:alice])
+
+      restorer = StateRestorer.new(mock_swarm, snapshot_data)
+
+      assert_kind_of(StateRestorer, restorer)
+    end
+
+    def test_version_200_rejected
+      snapshot_data = create_valid_snapshot_hash(agents: [:alice], version: "2.0.0")
+      mock_swarm = create_mock_swarm(agents: [:alice])
+
+      error = assert_raises(StateError) do
+        StateRestorer.new(mock_swarm, snapshot_data)
+      end
+
+      assert_match(/Unsupported snapshot version: 2.0.0/, error.message)
+    end
+
+    def test_restore_plugin_states_single_plugin_single_agent
+      plugin_states_data = {
+        "memory" => {
+          "alice" => {
+            read_entries: { "/entry1" => "digest1" },
+          },
         },
       }
       snapshot_data = create_valid_snapshot_hash(
         agents: [:alice],
-        memory_tracking: memory_tracking_data,
+        plugin_states: plugin_states_data,
       )
       mock_swarm = create_mock_swarm(agents: [:alice])
 
+      # Register a test plugin
+      test_plugin = TestStatePlugin.new(:memory)
+      PluginRegistry.clear
+      PluginRegistry.register(test_plugin)
+
       restorer = StateRestorer.new(mock_swarm, snapshot_data)
       result = restorer.restore
 
       assert_kind_of(RestoreResult, result)
+      # Verify plugin received the state
+      assert_includes(test_plugin.restored_agents, :alice)
+      restored_state = test_plugin.restored_states[:alice]
+
+      assert_equal({ read_entries: { "/entry1" => "digest1" } }, restored_state)
+
+      PluginRegistry.clear
     end
 
-    def test_restore_memory_tracking_multiple_agents
-      memory_tracking_data = {
-        alice: { "/entry_a" => "digest_a" },
-        bob: { "/entry_b" => "digest_b" },
+    def test_restore_plugin_states_multiple_plugins_multiple_agents
+      plugin_states_data = {
+        "memory" => {
+          "alice" => { read_entries: { "/a_entry" => "a_digest" } },
+          "bob" => { read_entries: { "/b_entry" => "b_digest" } },
+        },
+        "custom" => {
+          "alice" => { custom_data: "alice_custom" },
+        },
       }
       snapshot_data = create_valid_snapshot_hash(
         agents: [:alice, :bob],
-        memory_tracking: memory_tracking_data,
+        plugin_states: plugin_states_data,
       )
       mock_swarm = create_mock_swarm(agents: [:alice, :bob])
+
+      # Register test plugins
+      memory_plugin = TestStatePlugin.new(:memory)
+      custom_plugin = TestStatePlugin.new(:custom)
+      PluginRegistry.clear
+      PluginRegistry.register(memory_plugin)
+      PluginRegistry.register(custom_plugin)
 
       restorer = StateRestorer.new(mock_swarm, snapshot_data)
       result = restorer.restore
 
       assert_kind_of(RestoreResult, result)
+      # Verify memory plugin received both agents
+      assert_includes(memory_plugin.restored_agents, :alice)
+      assert_includes(memory_plugin.restored_agents, :bob)
+      # Verify custom plugin received only alice
+      assert_includes(custom_plugin.restored_agents, :alice)
+      refute_includes(custom_plugin.restored_agents, :bob)
+
+      PluginRegistry.clear
     end
 
-    def test_restore_memory_tracking_missing
-      snapshot_data = create_valid_snapshot_hash(agents: [:alice])
-      snapshot_data.delete(:memory_read_tracking)
+    def test_restore_plugin_states_missing_plugin_gracefully_skipped
+      plugin_states_data = {
+        "nonexistent_plugin" => {
+          "alice" => { some_data: "value" },
+        },
+      }
+      snapshot_data = create_valid_snapshot_hash(
+        agents: [:alice],
+        plugin_states: plugin_states_data,
+      )
+      mock_swarm = create_mock_swarm(agents: [:alice])
+
+      PluginRegistry.clear
+
+      restorer = StateRestorer.new(mock_swarm, snapshot_data)
+      result = restorer.restore
+
+      # Should succeed even with missing plugin
+      assert_predicate(result, :success?)
+    end
+
+    def test_restore_empty_plugin_states
+      snapshot_data = create_valid_snapshot_hash(
+        agents: [:alice],
+        plugin_states: {},
+      )
       mock_swarm = create_mock_swarm(agents: [:alice])
 
       restorer = StateRestorer.new(mock_swarm, snapshot_data)
@@ -755,18 +831,34 @@ module SwarmSDK
       assert_predicate(result, :success?)
     end
 
-    def test_restore_memory_tracking_not_defined
-      memory_tracking_data = { alice: { "/entry" => "digest" } }
+    def test_restore_with_string_keys_in_plugin_states
+      plugin_states_data = {
+        "memory" => {
+          "alice" => {
+            "read_entries" => { "/entry1" => "digest1" },
+          },
+        },
+      }
       snapshot_data = create_valid_snapshot_hash(
         agents: [:alice],
-        memory_tracking: memory_tracking_data,
+        plugin_states: plugin_states_data,
       )
       mock_swarm = create_mock_swarm(agents: [:alice])
+
+      test_plugin = TestStatePlugin.new(:memory)
+      PluginRegistry.clear
+      PluginRegistry.register(test_plugin)
 
       restorer = StateRestorer.new(mock_swarm, snapshot_data)
       result = restorer.restore
 
       assert_kind_of(RestoreResult, result)
+      # Should symbolize keys
+      restored_state = test_plugin.restored_states[:alice]
+
+      assert_equal({ read_entries: { "/entry1" => "digest1" } }, restored_state)
+
+      PluginRegistry.clear
     end
 
     # ========== Delegation Conversation Restore Tests ==========
@@ -974,7 +1066,8 @@ module SwarmSDK
       system_prompt_override: nil,
       scratchpad: nil,
       read_tracking: nil,
-      memory_tracking: nil,
+      plugin_states: nil,
+      version: "2.1.0",
       swarm_metadata: {}
     )
       agent_conversations ||= agents.each_with_object({}) do |agent, hash|
@@ -1008,7 +1101,7 @@ module SwarmSDK
       end
 
       snapshot = {
-        version: "2.0.0",
+        version: version,
         type: :swarm,
         snapshot_at: Time.now.iso8601,
         swarm_sdk_version: SwarmSDK::VERSION,
@@ -1019,7 +1112,7 @@ module SwarmSDK
 
       snapshot[:scratchpad] = scratchpad if scratchpad
       snapshot[:read_tracking] = read_tracking if read_tracking
-      snapshot[:memory_read_tracking] = memory_tracking if memory_tracking
+      snapshot[:plugin_states] = plugin_states if plugin_states
 
       snapshot
     end
@@ -1317,6 +1410,43 @@ module SwarmSDK
 
       def restore_read_entries(agent, entries)
         @restore_called = true
+      end
+    end
+
+    # Test plugin for plugin state snapshot/restore testing
+    class TestStatePlugin < Plugin
+      attr_reader :restored_agents, :restored_states, :snapshoted_agents
+
+      def initialize(plugin_name)
+        super()
+        @plugin_name = plugin_name
+        @restored_agents = []
+        @restored_states = {}
+        @snapshoted_agents = []
+        @agent_states = {} # { agent_name => state }
+      end
+
+      def name
+        @plugin_name
+      end
+
+      def tools
+        []
+      end
+
+      # Set state for an agent (for testing snapshot)
+      def set_agent_state(agent_name, state)
+        @agent_states[agent_name] = state
+      end
+
+      def snapshot_agent_state(agent_name)
+        @snapshoted_agents << agent_name
+        @agent_states[agent_name] || {}
+      end
+
+      def restore_agent_state(agent_name, state)
+        @restored_agents << agent_name
+        @restored_states[agent_name] = state
       end
     end
   end

@@ -69,7 +69,7 @@ module SwarmSDK
     # @return [Hash] StateSnapshot hash
     def reconstruct
       {
-        version: "2.0.0",
+        version: "2.1.0",
         type: "swarm",
         snapshot_at: @events.last&.fetch(:timestamp, Time.now.utc.iso8601),
         swarm_sdk_version: SwarmSDK::VERSION,
@@ -79,6 +79,7 @@ module SwarmSDK
         scratchpad: reconstruct_scratchpad,
         read_tracking: reconstruct_read_tracking,
         memory_read_tracking: reconstruct_memory_read_tracking,
+        plugin_states: reconstruct_plugin_states,
       }
     end
 
@@ -361,6 +362,16 @@ module SwarmSDK
         end
 
       tracking
+    end
+
+    # Reconstruct plugin states
+    #
+    # Plugin states cannot be fully reconstructed from events alone as they
+    # contain internal plugin data. Returns empty hash for compatibility.
+    #
+    # @return [Hash] Empty plugin states hash
+    def reconstruct_plugin_states
+      {}
     end
 
     # Parse timestamp string to Time object

@@ -35,7 +35,7 @@ module SwarmSDK
       snapshot = SnapshotFromEvents.reconstruct(events)
 
       # Verify basic structure
-      assert_equal("2.0.0", snapshot[:version])
+      assert_equal("2.1.0", snapshot[:version])
       assert_equal("swarm", snapshot[:type])
       assert(snapshot[:snapshot_at])
       assert_equal(SwarmSDK::VERSION, snapshot[:swarm_sdk_version])
@@ -434,7 +434,7 @@ module SwarmSDK
       snapshot = SnapshotFromEvents.reconstruct(events)
 
       # Should have structure but empty content
-      assert_equal("2.0.0", snapshot[:version])
+      assert_equal("2.1.0", snapshot[:version])
       assert_empty(snapshot[:agents])
       assert_empty(snapshot[:delegation_instances])
       assert_empty(snapshot[:scratchpad])

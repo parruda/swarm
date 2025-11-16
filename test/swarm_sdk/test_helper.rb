@@ -7,10 +7,58 @@ require "minitest/autorun"
 require "stringio"
 require "tmpdir"
 
+# WebMock for mocking HTTP requests
+# WebMock has native support for async-http clients
+require "webmock/minitest"
+WebMock.disable_net_connect!(allow_localhost: true)
+
+# CRITICAL: Override RubyLLM's Faraday adapter to use async-http
+# RubyLLM hardcodes :net_http which blocks fibers when running inside Async contexts.
+# This causes tests with Sync{} blocks to hang for 90+ seconds waiting for connection pools.
+# By using :async_http, we get fiber-aware HTTP that cooperates with Async's scheduler.
+# WebMock has native support for async-http clients (registered as :async_http_client).
+require "async/http/faraday"
+
+module AsyncHttpFaradayAdapter
+  private
+
+  def setup_middleware(faraday)
+    faraday.request(:multipart)
+    faraday.request(:json)
+    faraday.response(:json)
+    faraday.adapter(:async_http) # Use async-compatible adapter instead of :net_http
+    faraday.use(:llm_errors, provider: @provider)
+  end
+end
+
+RubyLLM::Connection.prepend(AsyncHttpFaradayAdapter)
+
+# Load shared test helpers
+require_relative "../helpers/llm_mock_helper"
+
 Dir[File.expand_path("support/**/*.rb", __dir__)].each { |f| require f }
 
 module SwarmSDK
   module TestHelpers
+    # Helper to create a test scratchpad with temp file persistence
+    # This prevents tests from writing to .swarm/scratchpad.json
+    #
+    # @return [SwarmSDK::Tools::Stores::Scratchpad] Scratchpad with temp file persistence
+    def create_test_scratchpad
+      # Create a volatile scratchpad for testing (no persistence)
+      SwarmSDK::Tools::Stores::ScratchpadStorage.new
+    end
+
+    # Clean up test scratchpad files
+    def cleanup_test_scratchpads
+      return unless defined?(@test_scratchpad_files)
+
+      @test_scratchpad_files&.each do |path|
+        File.delete(path) if File.exist?(path)
+      end
+      @test_scratchpad_files = []
+    end
+
     def silence_output
       original_stdout = $stdout
       original_stderr = $stderr
@@ -48,7 +96,6 @@ module SwarmSDK
       config[:description] ||= "Test agent #{name}"
       config[:model] ||= "gpt-5"
       config[:system_prompt] ||= "Test"
-      config[:directories] ||= ["."]
 
       SwarmSDK::Agent::Definition.new(name, config)
     end
@@ -76,6 +123,7 @@ module SwarmSDK
 end
 
 Minitest::Test.include(SwarmSDK::TestHelpers)
+Minitest::Test.include(LLMMockHelper)
 
 original_home_dir = ENV["CLAUDE_SWARM_HOME"]
 test_swarm_home = Dir.mktmpdir("swarm-sdk-test")

@@ -215,5 +215,46 @@ module SwarmSDK
     def serialize_config(agent_definition:)
       {}
     end
+
+    # Snapshot plugin-specific state for an agent
+    #
+    # Called during state snapshot creation (e.g., session persistence).
+    # Return any state your plugin needs to persist for this agent.
+    # The returned hash will be JSON serialized.
+    #
+    # @param agent_name [Symbol] Agent identifier
+    # @return [Hash] Plugin-specific state (empty hash if nothing to snapshot)
+    #
+    # @example Memory read tracking
+    #   def snapshot_agent_state(agent_name)
+    #     entries = StorageReadTracker.get_read_entries(agent_name)
+    #     return {} if entries.empty?
+    #
+    #     { read_entries: entries }
+    #   end
+    def snapshot_agent_state(agent_name)
+      {}
+    end
+
+    # Restore plugin-specific state for an agent
+    #
+    # Called during state restoration. Restore any persisted state.
+    # This method is idempotent - calling it multiple times with
+    # the same state should produce the same result.
+    #
+    # @param agent_name [Symbol] Agent identifier
+    # @param state [Hash] Previously snapshotted state (with symbol keys)
+    # @return [void]
+    #
+    # @example Memory read tracking
+    #   def restore_agent_state(agent_name, state)
+    #     entries = state[:read_entries] || state["read_entries"]
+    #     return unless entries
+    #
+    #     StorageReadTracker.restore_read_entries(agent_name, entries)
+    #   end
+    def restore_agent_state(agent_name, state)
+      # Override if needed
+    end
   end
 end

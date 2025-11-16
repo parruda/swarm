@@ -38,7 +38,7 @@ module SwarmSDK
     # @return [Snapshot] Snapshot object
     def snapshot
       data = {
-        version: "2.0.0", # Bumped for breaking changes
+        version: "2.1.0", # Bumped for plugin state abstraction
         type: type_name,
         snapshot_at: Time.now.utc.iso8601,
         swarm_sdk_version: SwarmSDK::VERSION,
@@ -47,7 +47,7 @@ module SwarmSDK
         delegation_instances: snapshot_delegation_instances,
         scratchpad: snapshot_scratchpad,
         read_tracking: snapshot_read_tracking,
-        memory_read_tracking: snapshot_memory_read_tracking,
+        plugin_states: snapshot_plugin_states,
       }
 
       # Wrap in Snapshot object
@@ -286,22 +286,31 @@ module SwarmSDK
       result
     end
 
-    # Snapshot memory read tracking state
+    # Snapshot plugin-specific state for all plugins
     #
-    # @return [Hash] { agent_name => { entry_path => digest } }
-    def snapshot_memory_read_tracking
-      return {} unless defined?(SwarmMemory::Core::StorageReadTracker)
-
+    # Iterates over all registered plugins and collects their agent-specific state.
+    # This decouples the SDK from plugin-specific implementations.
+    #
+    # @return [Hash] { plugin_name => { agent_name => plugin_state } }
+    def snapshot_plugin_states
       result = {}
 
       # Get all agents (primary + delegations)
       agent_names = all_agent_names
 
-      agent_names.each do |agent_name|
-        entries_with_digests = SwarmMemory::Core::StorageReadTracker.get_read_entries(agent_name)
-        next if entries_with_digests.empty?
+      # Iterate over all registered plugins
+      PluginRegistry.all.each do |plugin|
+        plugin_state = {}
 
-        result[agent_name.to_s] = entries_with_digests
+        agent_names.each do |agent_name|
+          agent_state = plugin.snapshot_agent_state(agent_name)
+          next if agent_state.empty?
+
+          plugin_state[agent_name.to_s] = agent_state
+        end
+
+        # Only include plugin if it has state for at least one agent
+        result[plugin.name.to_s] = plugin_state unless plugin_state.empty?
       end
 
       result

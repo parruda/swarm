@@ -73,7 +73,7 @@ module SwarmSDK
       restore_delegation_conversations(validation.restorable_delegations)
       restore_scratchpad
       restore_read_tracking
-      restore_memory_read_tracking
+      restore_plugin_states
 
       # Phase 3: Return result with warnings
       SwarmSDK::RestoreResult.new(
@@ -90,8 +90,8 @@ module SwarmSDK
     # @raise [StateError] if version is unsupported
     def validate_version!
       version = @snapshot_data[:version] || @snapshot_data["version"]
-      unless version == "2.0.0"
-        raise StateError, "Unsupported snapshot version: #{version}. Expected: 2.0.0"
+      unless version == "2.1.0"
+        raise StateError, "Unsupported snapshot version: #{version}. Expected: 2.1.0"
       end
     end
 
@@ -451,17 +451,25 @@ module SwarmSDK
       end
     end
 
-    # Restore memory read tracking state
+    # Restore plugin-specific state for all plugins
     #
     # @return [void]
-    def restore_memory_read_tracking
-      memory_tracking_data = @snapshot_data[:memory_read_tracking] || @snapshot_data["memory_read_tracking"]
-      return unless memory_tracking_data
-      return unless defined?(SwarmMemory::Core::StorageReadTracker)
+    def restore_plugin_states
+      plugin_states_data = @snapshot_data[:plugin_states] || @snapshot_data["plugin_states"]
+      return unless plugin_states_data
 
-      memory_tracking_data.each do |agent_name, entries_with_digests|
-        agent_sym = agent_name.to_sym
-        SwarmMemory::Core::StorageReadTracker.restore_read_entries(agent_sym, entries_with_digests)
+      plugin_states_data.each do |plugin_name, agents_state|
+        # Find plugin by name
+        plugin = PluginRegistry.all.find { |p| p.name.to_s == plugin_name.to_s }
+        next unless plugin
+
+        # Restore state for each agent
+        agents_state.each do |agent_name, state|
+          agent_sym = agent_name.to_sym
+          # Symbolize keys for consistent access
+          symbolized_state = state.is_a?(Hash) ? state.transform_keys(&:to_sym) : state
+          plugin.restore_agent_state(agent_sym, symbolized_state)
+        end
       end
     end
   end
