@@ -39,7 +39,7 @@ module SwarmSDK
         :agent_permissions,
         :assume_model_exists,
         :hooks,
-        :memory,
+        :plugin_configs,
         :shared_across_delegations
 
       attr_accessor :bypass_permissions, :max_concurrent_tools
@@ -95,9 +95,9 @@ module SwarmSDK
         # Parse directory first so it can be used in system prompt rendering
         @directory = parse_directory(config[:directory])
 
-        # Parse memory configuration BEFORE building system prompt
-        # (memory prompt needs to be appended if memory is enabled)
-        @memory = parse_memory_config(config[:memory])
+        # Extract plugin configurations (generic bucket for all plugin-specific keys)
+        # This allows plugins to store their config without SDK knowing about them
+        @plugin_configs = extract_plugin_configs(config)
 
         # Delegation isolation mode (default: false = isolated instances per delegation)
         @shared_across_delegations = config[:shared_across_delegations] || false
@@ -127,40 +127,20 @@ module SwarmSDK
         validate!
       end
 
-      # Check if memory is enabled for this agent
+      # Get plugin-specific configuration
       #
-      # @return [Boolean]
-      def memory_enabled?
-        return false if @memory.nil?
-
-        # MemoryConfig object (from DSL)
-        return @memory.enabled? if @memory.respond_to?(:enabled?)
-
-        # Hash (from YAML) - check for directory key
-        if @memory.is_a?(Hash)
-          directory = @memory[:directory] || @memory["directory"]
-          return !directory.nil? && !directory.to_s.strip.empty?
-        end
-
-        false
-      end
-
-      # Parse memory configuration from Hash or MemoryConfig object
+      # Plugins store their configuration in the generic plugin_configs hash.
+      # This allows SDK to remain plugin-agnostic while plugins can store
+      # arbitrary configuration.
       #
-      # @param memory_config [Hash, Object, nil] Memory configuration
-      # @return [Object, Hash, nil] Memory config (could be MemoryConfig from swarm_memory or Hash)
-      def parse_memory_config(memory_config)
-        return if memory_config.nil?
-
-        # If it's a MemoryConfig object (duck typing - has directory, adapter, mode methods)
-        # return as-is. This could be SwarmMemory::DSL::MemoryConfig or any compatible object.
-        return memory_config if memory_config.respond_to?(:directory) &&
-          memory_config.respond_to?(:adapter) &&
-          memory_config.respond_to?(:enabled?)
-
-        # If it's a hash (from YAML), keep it as a hash
-        # Plugin will create storage adapter based on the hash values
-        memory_config
+      # @param plugin_name [Symbol] Plugin name (e.g., :memory)
+      # @return [Object, nil] Plugin configuration or nil if not present
+      #
+      # @example
+      #   agent_definition.plugin_config(:memory)
+      #   # => { directory: "tmp/memory", mode: :researcher }
+      def plugin_config(plugin_name)
+        @plugin_configs[plugin_name.to_sym] || @plugin_configs[plugin_name.to_s]
       end
 
       def to_h
@@ -294,6 +274,45 @@ module SwarmSDK
       def parse_directory(directory_config)
         directory_config ||= "."
         File.expand_path(directory_config.to_s)
+      end
+
+      # Extract plugin-specific configuration keys from the config hash
+      #
+      # Standard SDK keys are filtered out, leaving only plugin-specific keys.
+      # This allows plugins to add their own configuration without SDK modifications.
+      #
+      # @param config [Hash] Full agent configuration
+      # @return [Hash] Plugin-specific configuration (keys not recognized by SDK)
+      def extract_plugin_configs(config)
+        standard_keys = [
+          :name,
+          :description,
+          :model,
+          :provider,
+          :base_url,
+          :api_version,
+          :context_window,
+          :parameters,
+          :headers,
+          :timeout,
+          :bypass_permissions,
+          :max_concurrent_tools,
+          :assume_model_exists,
+          :disable_default_tools,
+          :coding_agent,
+          :directory,
+          :system_prompt,
+          :tools,
+          :delegates_to,
+          :mcp_servers,
+          :hooks,
+          :default_permissions,
+          :permissions,
+          :shared_across_delegations,
+          :directories,
+        ]
+
+        config.reject { |k, _| standard_keys.include?(k.to_sym) }
       end
 
       # Parse tools configuration with permissions support

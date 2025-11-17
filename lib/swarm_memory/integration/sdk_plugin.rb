@@ -156,7 +156,7 @@ module SwarmMemory
       # @return [String] Memory prompt contribution
       def system_prompt_contribution(agent_definition:, storage:)
         # Extract mode from memory config
-        memory_config = agent_definition.memory
+        memory_config = agent_definition.plugin_config(:memory)
         mode = if memory_config.is_a?(SwarmMemory::DSL::MemoryConfig)
           memory_config.mode # MemoryConfig object from DSL
         elsif memory_config.respond_to?(:mode)
@@ -204,7 +204,19 @@ module SwarmMemory
       # @param agent_definition [Agent::Definition] Agent definition
       # @return [Boolean] True if agent has memory configuration
       def storage_enabled?(agent_definition)
-        agent_definition.memory_enabled?
+        memory_config = agent_definition.plugin_config(:memory)
+        return false if memory_config.nil?
+
+        # MemoryConfig object (from DSL)
+        return memory_config.enabled? if memory_config.respond_to?(:enabled?)
+
+        # Hash (from YAML) - check for directory key
+        if memory_config.is_a?(Hash)
+          directory = memory_config[:directory] || memory_config["directory"]
+          return !directory.nil? && !directory.to_s.strip.empty?
+        end
+
+        false
       end
 
       # Contribute to agent serialization
@@ -215,9 +227,10 @@ module SwarmMemory
       # @param agent_definition [Agent::Definition] Agent definition
       # @return [Hash] Memory config to include in to_h
       def serialize_config(agent_definition:)
-        return {} unless agent_definition.memory
+        memory_config = agent_definition.plugin_config(:memory)
+        return {} unless memory_config
 
-        { memory: agent_definition.memory }
+        { memory: memory_config }
       end
 
       # Snapshot plugin-specific state for an agent
@@ -266,6 +279,27 @@ module SwarmMemory
         Core::StorageReadTracker.get_read_entries(agent_name)[path]
       end
 
+      # Translate YAML configuration into DSL calls
+      #
+      # Called during YAML-to-DSL translation. Handles memory-specific YAML
+      # configuration and translates it into DSL method calls on the builder.
+      #
+      # @param builder [Agent::Builder] Builder instance (self in DSL context)
+      # @param agent_config [Hash] Full agent config from YAML
+      # @return [void]
+      def translate_yaml_config(builder, agent_config)
+        memory_config = agent_config[:memory]
+        return unless memory_config
+
+        builder.instance_eval do
+          memory do
+            directory(memory_config[:directory]) if memory_config[:directory]
+            adapter(memory_config[:adapter]) if memory_config[:adapter]
+            mode(memory_config[:mode]) if memory_config[:mode]
+          end
+        end
+      end
+
       # Lifecycle: Agent initialized
       #
       # Filters tools by mode (removing non-mode tools), registers LoadSkill,
@@ -285,7 +319,7 @@ module SwarmMemory
         return unless storage # Only proceed if memory is enabled for this agent
 
         # Extract mode from memory config
-        memory_config = agent_definition.memory
+        memory_config = agent_definition.plugin_config(:memory)
         mode = if memory_config.is_a?(SwarmMemory::DSL::MemoryConfig)
           memory_config.mode # MemoryConfig object from DSL
         elsif memory_config.respond_to?(:mode)

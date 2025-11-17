@@ -32,8 +32,10 @@ class SwarmSDKIntegrationTest < Minitest::Test
     swarm.lead = :test_agent
 
     # Agent should have memory tools available
-    # (would need to initialize agents to check, but configuration should be valid)
-    assert_predicate(agent_def, :memory_enabled?)
+    # Use plugin's storage_enabled? method (memory_enabled? is no longer in SDK)
+    plugin = SwarmMemory::Integration::SDKPlugin.new
+
+    assert(plugin.storage_enabled?(agent_def))
   end
 
   def test_memory_tools_created_correctly

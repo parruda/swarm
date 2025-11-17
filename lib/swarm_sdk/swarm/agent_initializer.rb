@@ -557,17 +557,15 @@ module SwarmSDK
 
       # Get plugin-specific config from agent definition
       #
-      # Plugins can store their config in agent definition under their plugin name.
-      # E.g., memory plugin looks for `agent_definition.memory`
+      # Uses the generic plugin_configs accessor to retrieve plugin-specific config.
+      # E.g., memory plugin config is accessed via `agent_definition.plugin_config(:memory)`
       #
       # @param agent_definition [Agent::Definition] Agent definition
       # @param plugin_name [Symbol] Plugin name
       # @return [Object, nil] Plugin config or nil
       def get_plugin_config(agent_definition, plugin_name)
-        # Try to call method named after plugin (e.g., .memory for :memory plugin)
-        if agent_definition.respond_to?(plugin_name)
-          agent_definition.public_send(plugin_name)
-        end
+        # Use generic plugin config accessor
+        agent_definition.plugin_config(plugin_name)
       end
 
       # Notify all plugins that an agent was initialized

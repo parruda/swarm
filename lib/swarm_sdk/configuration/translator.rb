@@ -178,12 +178,10 @@ module SwarmSDK
             end
           end
 
-          if config[:memory]
-            memory do
-              directory(config[:memory][:directory]) if config[:memory][:directory]
-              adapter(config[:memory][:adapter]) if config[:memory][:adapter]
-              mode(config[:memory][:mode]) if config[:memory][:mode]
-            end
+          # Let plugins handle their YAML config translation
+          # This removes SDK knowledge of plugin-specific configuration
+          PluginRegistry.all.each do |plugin|
+            plugin.translate_yaml_config(self, config)
           end
 
           self.permissions_hash = config[:permissions] if config[:permissions]

@@ -277,5 +277,33 @@ module SwarmSDK
     def get_tool_result_digest(agent_name:, tool_name:, path:)
       nil
     end
+
+    # Translate YAML configuration into DSL calls
+    #
+    # Called during YAML-to-DSL translation. Plugins can translate their
+    # specific YAML configuration keys into DSL method calls on the builder.
+    # This allows SDK to remain plugin-agnostic while plugins can add
+    # YAML configuration support.
+    #
+    # @param builder [Agent::Builder] Builder instance (self in DSL context)
+    # @param agent_config [Hash] Full agent config from YAML
+    # @return [void]
+    #
+    # @example Memory plugin YAML translation
+    #   def translate_yaml_config(builder, agent_config)
+    #     memory_config = agent_config[:memory]
+    #     return unless memory_config
+    #
+    #     builder.instance_eval do
+    #       memory do
+    #         directory(memory_config[:directory])
+    #         adapter(memory_config[:adapter]) if memory_config[:adapter]
+    #         mode(memory_config[:mode]) if memory_config[:mode]
+    #       end
+    #     end
+    #   end
+    def translate_yaml_config(builder, agent_config)
+      # Override if plugin needs YAML configuration support
+    end
   end
 end
