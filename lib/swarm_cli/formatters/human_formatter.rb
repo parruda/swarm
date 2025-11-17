@@ -99,8 +99,6 @@ module SwarmCLI
           handle_llm_retry_attempt(entry)
         when "llm_retry_exhausted"
           handle_llm_retry_exhausted(entry)
-        when "response_parse_error"
-          handle_response_parse_error(entry)
         end
       end
 
@@ -642,37 +640,6 @@ module SwarmCLI
         @output.puts @panel.render(
           type: :error,
           title: "RETRY EXHAUSTED #{@agent_badge.render(agent)}",
-          lines: lines,
-          indent: @depth_tracker.get(agent),
-        )
-      end
-
-      def handle_response_parse_error(entry)
-        agent = entry[:agent]
-        error_class = entry[:error_class]
-        error_message = entry[:error_message]
-
-        # Stop agent thinking spinner (if active)
-        unless @quiet
-          spinner_key = "agent_#{agent}".to_sym
-          @spinner_manager.stop(spinner_key) if @spinner_manager.active?(spinner_key)
-        end
-
-        lines = [
-          @pastel.red("Failed to parse LLM API response"),
-          @pastel.dim("Error: #{error_class}: #{error_message}"),
-        ]
-
-        # Add response body preview if available (truncated)
-        if entry[:response_body]
-          body_preview = entry[:response_body].to_s[0..200]
-          body_preview += "..." if entry[:response_body].to_s.length > 200
-          lines << @pastel.dim("Response: #{body_preview}")
-        end
-
-        @output.puts @panel.render(
-          type: :error,
-          title: "PARSE ERROR #{@agent_badge.render(agent)}",
           lines: lines,
           indent: @depth_tracker.get(agent),
         )

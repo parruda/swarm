@@ -11,27 +11,23 @@ module SwarmSDK
 
         # Create the internal RubyLLM::Chat instance
         #
-        # @return [Array<RubyLLM::Chat, RubyLLM::Provider>] Chat instance and provider
+        # @return [RubyLLM::Chat] Chat instance
         def create_llm_chat(model_id:, provider_name:, base_url:, api_version:, timeout:, assume_model_exists:, max_concurrent_tools:)
-          actual_provider = determine_provider(provider_name, base_url, api_version)
           chat_options = build_chat_options(max_concurrent_tools)
 
-          chat, provider_instance = instantiate_chat(
+          chat = instantiate_chat(
             model_id: model_id,
             provider_name: provider_name,
-            actual_provider: actual_provider,
             base_url: base_url,
             timeout: timeout,
             assume_model_exists: assume_model_exists,
             chat_options: chat_options,
           )
 
-          # Configure custom provider after creation
-          if actual_provider == :openai_with_responses && api_version == "v1/responses"
-            configure_responses_api_provider(provider_instance)
-          end
+          # Enable RubyLLM's native Responses API if configured
+          enable_responses_api(chat, api_version, base_url) if api_version == "v1/responses"
 
-          [chat, provider_instance]
+          chat
         end
 
         # Build chat options hash
@@ -49,13 +45,12 @@ module SwarmSDK
 
         # Instantiate RubyLLM::Chat with appropriate configuration
         #
-        # @return [Array<RubyLLM::Chat, RubyLLM::Provider>] Chat and provider instances
-        def instantiate_chat(model_id:, provider_name:, actual_provider:, base_url:, timeout:, assume_model_exists:, chat_options:)
+        # @return [RubyLLM::Chat] Chat instance
+        def instantiate_chat(model_id:, provider_name:, base_url:, timeout:, assume_model_exists:, chat_options:)
           if base_url || timeout != Defaults::Timeouts::AGENT_REQUEST_SECONDS
             instantiate_with_custom_context(
               model_id: model_id,
               provider_name: provider_name,
-              actual_provider: actual_provider,
               base_url: base_url,
               timeout: timeout,
               assume_model_exists: assume_model_exists,
@@ -78,66 +73,42 @@ module SwarmSDK
         end
 
         # Instantiate chat with custom context (base_url/timeout overrides)
-        def instantiate_with_custom_context(model_id:, provider_name:, actual_provider:, base_url:, timeout:, assume_model_exists:, chat_options:)
+        def instantiate_with_custom_context(model_id:, provider_name:, base_url:, timeout:, assume_model_exists:, chat_options:)
           raise ArgumentError, "Provider must be specified when base_url is set" if base_url && !provider_name
 
           context = build_custom_context(provider: provider_name, base_url: base_url, timeout: timeout)
           assume_model_exists = base_url ? true : false if assume_model_exists.nil?
 
-          _, provider = RubyLLM::Models.resolve(
-            model_id,
-            provider: actual_provider,
-            assume_exists: assume_model_exists,
-            config: context.config,
-          )
-
-          chat = RubyLLM.chat(
+          RubyLLM.chat(
             model: model_id,
-            provider: actual_provider,
+            provider: provider_name,
             assume_model_exists: assume_model_exists,
             context: context,
             **chat_options,
           )
-
-          [chat, provider]
         end
 
         # Instantiate chat with explicit provider
         def instantiate_with_provider(model_id:, provider_name:, assume_model_exists:, chat_options:)
           assume_model_exists = false if assume_model_exists.nil?
 
-          _, provider = RubyLLM::Models.resolve(
-            model_id,
-            provider: provider_name,
-            assume_exists: assume_model_exists,
-          )
-
-          chat = RubyLLM.chat(
+          RubyLLM.chat(
             model: model_id,
             provider: provider_name,
             assume_model_exists: assume_model_exists,
             **chat_options,
           )
-
-          [chat, provider]
         end
 
         # Instantiate chat with default configuration
         def instantiate_default(model_id:, assume_model_exists:, chat_options:)
           assume_model_exists = false if assume_model_exists.nil?
 
-          _, provider = RubyLLM::Models.resolve(
-            model_id,
-            assume_exists: assume_model_exists,
-          )
-
-          chat = RubyLLM.chat(
+          RubyLLM.chat(
             model: model_id,
             assume_model_exists: assume_model_exists,
             **chat_options,
           )
-
-          [chat, provider]
         end
 
         # Build custom RubyLLM context for base_url/timeout overrides
@@ -186,26 +157,30 @@ module SwarmSDK
           end
         end
 
-        # Determine which provider to use based on configuration
+        # Enable RubyLLM's native Responses API on the chat instance
         #
-        # @return [Symbol] The provider to use
-        def determine_provider(provider, base_url, api_version)
-          return provider unless base_url
+        # Uses RubyLLM's built-in support for OpenAI's Responses API (v1/responses endpoint)
+        # which provides automatic stateful conversation tracking with 5-minute TTL.
+        #
+        # @param chat [RubyLLM::Chat] Chat instance to configure
+        # @param api_version [String] API version (should be "v1/responses")
+        # @param base_url [String, nil] Custom endpoint URL if any
+        def enable_responses_api(chat, api_version, base_url)
+          return unless api_version == "v1/responses"
 
-          case provider.to_s
-          when "openai", "deepseek", "perplexity", "mistral", "openrouter"
-            api_version == "v1/responses" ? :openai_with_responses : provider
-          else
-            provider
+          # Warn if using custom endpoint (typically doesn't support Responses API)
+          if base_url && !base_url.include?("api.openai.com")
+            RubyLLM.logger.warn(
+              "SwarmSDK: Responses API requested but using custom endpoint #{base_url}. " \
+                "Custom endpoints typically don't support /v1/responses.",
+            )
           end
-        end
 
-        # Configure the custom provider after creation to use responses API
-        def configure_responses_api_provider(provider_instance)
-          return unless provider_instance.is_a?(SwarmSDK::Providers::OpenAIWithResponses)
-
-          provider_instance.use_responses_api = true
-          RubyLLM.logger.debug("SwarmSDK: Configured provider to use responses API")
+          # Enable native RubyLLM Responses API support
+          # - stateful: true enables automatic previous_response_id tracking
+          # - store: true enables server-side conversation storage
+          chat.with_responses_api(stateful: true, store: true)
+          RubyLLM.logger.debug("SwarmSDK: Enabled native Responses API support")
         end
 
         # Configure LLM parameters with proper temperature normalization

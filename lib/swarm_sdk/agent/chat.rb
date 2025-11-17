@@ -92,11 +92,6 @@ module SwarmSDK
       # Include LLM instrumentation
       include ChatHelpers::Instrumentation
 
-      # Register custom provider for responses API support
-      unless RubyLLM::Provider.providers.key?(:openai_with_responses)
-        RubyLLM::Provider.register(:openai_with_responses, SwarmSDK::Providers::OpenAIWithResponses)
-      end
-
       # SwarmSDK-specific accessors
       attr_reader :global_semaphore,
         :real_model_info,
@@ -105,7 +100,7 @@ module SwarmSDK
         :agent_context,
         :last_todowrite_message_index,
         :active_skill_path,
-        :provider # Stored during initialization since RubyLLM::Chat doesn't expose it
+        :provider # Extracted from RubyLLM::Chat for instrumentation (not publicly accessible)
 
       # Setters for snapshot/restore
       attr_writer :last_todowrite_message_index, :active_skill_path
@@ -161,8 +156,8 @@ module SwarmSDK
         # Track active skill (only used if memory enabled)
         @active_skill_path = nil
 
-        # Create internal RubyLLM::Chat instance and extract provider
-        @llm_chat, @provider = create_llm_chat(
+        # Create internal RubyLLM::Chat instance
+        @llm_chat = create_llm_chat(
           model_id: model_id,
           provider_name: provider_name,
           base_url: base_url,
@@ -171,6 +166,13 @@ module SwarmSDK
           assume_model_exists: assume_model_exists,
           max_concurrent_tools: max_concurrent_tools,
         )
+
+        # Extract provider from RubyLLM::Chat for instrumentation
+        # Must be done after create_llm_chat since with_responses_api() may swap provider
+        # NOTE: RubyLLM doesn't expose provider publicly, but we need it for Faraday middleware
+        # rubocop:disable Security/NoReflectionMethods
+        @provider = @llm_chat.instance_variable_get(:@provider)
+        # rubocop:enable Security/NoReflectionMethods
 
         # Try to fetch real model info for accurate context tracking
         fetch_real_model_info(model_id)

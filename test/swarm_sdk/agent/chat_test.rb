@@ -420,11 +420,6 @@ module SwarmSDK
       assert_instance_of(Agent::Chat, chat)
     end
 
-    def test_openai_with_responses_provider_registered
-      # Verify our custom provider is registered
-      assert(RubyLLM::Provider.providers.key?(:openai_with_responses))
-    end
-
     def test_system_reminders_injected_on_first_ask
       # Stub the OpenAI API to capture the request body
       captured_body = nil
@@ -617,7 +612,7 @@ module SwarmSDK
       end
     end
 
-    def test_configure_responses_api_provider_with_custom_provider
+    def test_configure_responses_api_with_native_rubyllm_provider
       chat = Agent::Chat.new(
         definition: {
           model: "gpt-5",
@@ -627,11 +622,10 @@ module SwarmSDK
         },
       )
 
-      # Provider should be configured
+      # Provider should be native RubyLLM Responses API provider
       provider_instance = chat.provider
 
-      assert_instance_of(SwarmSDK::Providers::OpenAIWithResponses, provider_instance)
-      assert(provider_instance.use_responses_api)
+      assert_instance_of(RubyLLM::Providers::OpenAIResponses, provider_instance)
     end
 
     def test_configure_responses_api_provider_without_custom_provider
