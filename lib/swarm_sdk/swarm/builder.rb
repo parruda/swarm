@@ -48,11 +48,50 @@ module SwarmSDK
         super
         @lead_agent = nil
         @swarm_hooks = []
+        @observer_configs = []
       end
 
       # Set lead agent
       def lead(agent_name)
         @lead_agent = agent_name
+      end
+
+      # Define observer agent behavior
+      #
+      # Configures an agent to run in parallel with main execution,
+      # triggered by specific events. The block defines event handlers.
+      #
+      # @param agent_name [Symbol] Name of agent to use as observer (must be defined)
+      # @param options [Hash] Optional observer settings (timeout, max_concurrent, etc.)
+      # @yield Observer configuration block
+      #
+      # @example Basic observer
+      #   observer :profiler do
+      #     on :swarm_start do |event|
+      #       "Analyze this prompt: #{event[:prompt]}"
+      #     end
+      #   end
+      #
+      # @example Observer with options
+      #   observer :monitor, timeout: 120 do
+      #     on :tool_call do |event|
+      #       next unless event[:tool_name] == "Bash"
+      #       "Check command: #{event[:arguments][:command]}"
+      #     end
+      #   end
+      def observer(agent_name, **options, &block)
+        unless @agents.key?(agent_name)
+          raise ConfigurationError,
+            "Observer agent '#{agent_name}' not defined. " \
+              "Define the agent first with `agent :#{agent_name} do ... end`"
+        end
+
+        config = Observer::Config.new(agent_name)
+        config.options.merge!(options) if options.any?
+        builder = Observer::Builder.new(agent_name, config)
+        builder.instance_eval(&block)
+
+        @observer_configs << config
       end
 
       # Add swarm-level hook (swarm_start, swarm_stop only)
@@ -132,6 +171,9 @@ module SwarmSDK
         @all_agents_config&.hooks&.each do |hook_config|
           apply_all_agents_hook(swarm, hook_config)
         end
+
+        # Add observer configurations to swarm
+        @observer_configs.each { |c| swarm.add_observer_config(c) }
 
         swarm
       end

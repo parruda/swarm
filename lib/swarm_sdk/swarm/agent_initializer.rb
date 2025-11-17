@@ -46,6 +46,39 @@ module SwarmSDK
       # Provide access to agent contexts for Swarm
       attr_reader :agent_contexts
 
+      # Initialize a single agent in isolation (for observer agents)
+      #
+      # Creates an isolated agent chat without delegation tools,
+      # suitable for observer agents that don't need to delegate.
+      # Reuses existing create_agent_chat infrastructure.
+      #
+      # @param agent_name [Symbol] Name of agent to initialize
+      # @return [Agent::Chat] Isolated agent chat instance
+      # @raise [ConfigurationError] If agent not found
+      #
+      # @example
+      #   initializer = AgentInitializer.new(swarm)
+      #   chat = initializer.initialize_isolated_agent(:profiler)
+      #   chat.ask("Analyze this prompt")
+      def initialize_isolated_agent(agent_name)
+        agent_def = @swarm.agent_definitions[agent_name]
+        raise ConfigurationError, "Agent '#{agent_name}' not found" unless agent_def
+
+        # Ensure plugin storages are created (needed by ToolConfigurator)
+        create_plugin_storages if @swarm.plugin_storages.empty?
+
+        # Reuse existing create_agent_chat infrastructure
+        tool_configurator = ToolConfigurator.new(
+          @swarm,
+          @swarm.scratchpad_storage,
+          @swarm.plugin_storages,
+        )
+
+        # Create chat using same method as pass_1_create_agents
+        # This gives us full tool setup, MCP servers, etc.
+        create_agent_chat(agent_name, agent_def, tool_configurator)
+      end
+
       # Create a tool that delegates work to another agent
       #
       # This method is public for testing delegation from Swarm.

@@ -36,6 +36,10 @@ module SwarmSDK
           execute_in_task(prompt, logs: logs, has_logging: has_logging) do |lead, current_prompt|
             task.async(finished: false) { lead.ask(current_prompt) }.wait
           end
+        ensure
+          # Always wait for observer tasks, even if main execution raises
+          # This is INSIDE Sync block, so async tasks can still complete
+          @swarm.wait_for_observers
         end
       ensure
         # Restore original fiber storage (preserves parent context for nested swarms)
@@ -181,6 +185,9 @@ module SwarmSDK
 
         # Cleanup MCP clients after execution
         @swarm.cleanup
+
+        # Cleanup observer subscriptions (matches MCP cleanup pattern)
+        @swarm.cleanup_observers
 
         # Restore original Fiber storage (preserves parent context for nested swarms)
         restore_fiber_storage

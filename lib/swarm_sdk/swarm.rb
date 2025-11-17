@@ -73,7 +73,7 @@ module SwarmSDK
     # Default tools available to all agents
     DEFAULT_TOOLS = ToolConfigurator::DEFAULT_TOOLS
 
-    attr_reader :name, :agents, :lead_agent, :mcp_clients, :delegation_instances, :agent_definitions, :swarm_id, :parent_swarm_id, :swarm_registry, :scratchpad_storage, :allow_filesystem_tools, :hook_registry, :global_semaphore, :plugin_storages, :config_for_hooks
+    attr_reader :name, :agents, :lead_agent, :mcp_clients, :delegation_instances, :agent_definitions, :swarm_id, :parent_swarm_id, :swarm_registry, :scratchpad_storage, :allow_filesystem_tools, :hook_registry, :global_semaphore, :plugin_storages, :config_for_hooks, :observer_configs
     attr_accessor :delegation_call_stack
 
     # Check if scratchpad tools are enabled
@@ -206,6 +206,10 @@ module SwarmSDK
       # Track if agent_start events have been emitted
       # This prevents duplicate emissions and ensures events are emitted when logging is ready
       @agent_start_events_emitted = false
+
+      # Observer agent configurations
+      @observer_configs = []
+      @observer_manager = nil
     end
 
     # Add an agent to the swarm
@@ -301,6 +305,10 @@ module SwarmSDK
 
       # Setup logging FIRST if block given (so swarm_start event can be emitted)
       setup_logging(logs, &block) if has_logging
+
+      # Setup observer execution if any observers configured
+      # MUST happen AFTER setup_logging (which clears Fiber[:log_subscriptions])
+      setup_observer_execution if @observer_configs.any?
 
       # Trigger swarm_start hooks (before any execution)
       current_prompt = apply_swarm_start_hooks(current_prompt)
@@ -399,6 +407,39 @@ module SwarmSDK
       @agents.each_value do |agent_chat|
         agent_chat.clear_conversation if agent_chat.respond_to?(:clear_conversation)
       end
+    end
+
+    # Add observer configuration
+    #
+    # Called by Swarm::Builder to register observer agent configurations.
+    # Validates that the referenced agent exists.
+    #
+    # @param config [Observer::Config] Observer configuration
+    # @return [void]
+    def add_observer_config(config)
+      validate_observer_agent(config.agent_name)
+      @observer_configs << config
+    end
+
+    # Wait for all observer tasks to complete
+    #
+    # Called by Executor to wait for observer agents before cleanup.
+    # Safe to call even if no observers are configured.
+    #
+    # @return [void]
+    def wait_for_observers
+      @observer_manager&.wait_for_completion
+    end
+
+    # Cleanup observer subscriptions
+    #
+    # Called by Executor.cleanup_after_execution to unsubscribe observers.
+    # Matches the MCP cleanup pattern.
+    #
+    # @return [void]
+    def cleanup_observers
+      @observer_manager&.cleanup
+      @observer_manager = nil
     end
 
     # Create snapshot of current conversation state
@@ -504,6 +545,31 @@ module SwarmSDK
       else
         prompt
       end
+    end
+
+    # Validate that observer agent exists
+    #
+    # @param agent_name [Symbol] Name of the observer agent
+    # @raise [ConfigurationError] If agent not found
+    # @return [void]
+    def validate_observer_agent(agent_name)
+      return if @agent_definitions.key?(agent_name)
+
+      raise ConfigurationError,
+        "Observer agent '#{agent_name}' not found. " \
+          "Define the agent first with `agent :#{agent_name} do ... end`"
+    end
+
+    # Setup observer manager and subscriptions
+    #
+    # Creates Observer::Manager and registers event subscriptions.
+    # Must be called AFTER setup_logging (which clears Fiber[:log_subscriptions]).
+    #
+    # @return [void]
+    def setup_observer_execution
+      @observer_manager = Observer::Manager.new(self)
+      @observer_configs.each { |c| @observer_manager.add_config(c) }
+      @observer_manager.setup
     end
 
     # Validate and normalize scratchpad mode for Swarm
