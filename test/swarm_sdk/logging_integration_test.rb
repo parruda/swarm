@@ -93,7 +93,7 @@ module SwarmSDK
       events = []
 
       # Register callback
-      LogCollector.on_log { |event| events << event }
+      LogCollector.subscribe { |event| events << event }
 
       # Set collector as emitter
       LogStream.emitter = LogCollector

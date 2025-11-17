@@ -11,7 +11,7 @@ module SwarmSDK
       Fiber[:execution_id] = nil
       Fiber[:swarm_id] = nil
       Fiber[:parent_swarm_id] = nil
-      Fiber[:log_callbacks] = nil
+      Fiber[:log_subscriptions] = nil
 
       # Set fake API key to avoid RubyLLM configuration errors
       @original_api_key = ENV["OPENAI_API_KEY"]
@@ -53,7 +53,7 @@ module SwarmSDK
       Fiber[:execution_id] = nil
       Fiber[:swarm_id] = nil
       Fiber[:parent_swarm_id] = nil
-      Fiber[:log_callbacks] = nil
+      Fiber[:log_subscriptions] = nil
     end
 
     # Test 1: Default behavior (wait: true implicitly) returns Result

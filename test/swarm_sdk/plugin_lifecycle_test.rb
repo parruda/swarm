@@ -11,7 +11,7 @@ module SwarmSDK
       Fiber[:execution_id] = nil
       Fiber[:swarm_id] = nil
       Fiber[:parent_swarm_id] = nil
-      Fiber[:log_callbacks] = nil
+      Fiber[:log_subscriptions] = nil
 
       # Set fake API key
       @original_api_key = ENV["OPENAI_API_KEY"]
@@ -48,7 +48,7 @@ module SwarmSDK
       Fiber[:execution_id] = nil
       Fiber[:swarm_id] = nil
       Fiber[:parent_swarm_id] = nil
-      Fiber[:log_callbacks] = nil
+      Fiber[:log_subscriptions] = nil
     end
 
     # Test 1: on_swarm_started is called before execution

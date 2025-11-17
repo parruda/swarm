@@ -43,10 +43,12 @@ module SwarmSDK
       # Execute the workflow with a prompt
       #
       # @param prompt [String] Initial prompt for the workflow
+      # @param inherit_subscriptions [Boolean] Whether to inherit parent log subscriptions
       # @yield [Hash] Log entry if block given (for streaming)
       # @return [Result] Final result from last node execution
-      def run(prompt, &block)
-        setup_logging(&block)
+      def run(prompt, inherit_subscriptions: true, &block)
+        @parent_subscriptions = capture_parent_subscriptions if inherit_subscriptions
+        setup_logging(inherit_subscriptions: inherit_subscriptions, &block)
         setup_fiber_context
         @workflow.original_prompt = prompt
 
@@ -66,15 +68,31 @@ module SwarmSDK
 
       private
 
+      # Capture parent subscriptions before overwriting Fiber storage
+      #
+      # @return [Array<LogCollector::Subscription>] Parent subscriptions
+      def capture_parent_subscriptions
+        Fiber[:log_subscriptions] || []
+      end
+
       # Setup logging infrastructure if block given
       #
+      # @param inherit_subscriptions [Boolean] Whether to inherit parent subscriptions
       # @yield [Hash] Log entry for streaming
       # @return [void]
-      def setup_logging(&block)
+      def setup_logging(inherit_subscriptions: true, &block)
         @has_logging = block_given?
         return unless @has_logging
 
-        LogCollector.on_log do |entry|
+        Fiber[:log_subscriptions] = if inherit_subscriptions && @parent_subscriptions
+          # Keep parent subscriptions and add new one
+          @parent_subscriptions.dup
+        else
+          # Isolate: start with fresh subscriptions
+          []
+        end
+
+        LogCollector.subscribe do |entry|
           block.call(entry)
         end
         LogStream.emitter = LogCollector
@@ -94,6 +112,7 @@ module SwarmSDK
         Fiber[:execution_id] = nil
         Fiber[:swarm_id] = nil
         Fiber[:parent_swarm_id] = nil
+        Fiber[:log_subscriptions] = nil
       end
 
       # Reset logging state

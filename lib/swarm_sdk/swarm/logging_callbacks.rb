@@ -23,11 +23,11 @@ module SwarmSDK
       # @param logs [Array] Log collection array
       # @yield [entry] Block called for each log entry
       def setup_logging(logs)
-        # Force fresh callback array for this execution
-        Fiber[:log_callbacks] = []
+        # Force fresh subscription array for this execution
+        Fiber[:log_subscriptions] = []
 
-        # Register callback to collect logs and forward to user's block
-        LogCollector.on_log do |entry|
+        # Subscribe to collect logs and forward to user's block
+        LogCollector.subscribe do |entry|
           logs << entry
           yield(entry) if block_given?
         end

@@ -213,7 +213,7 @@ module SwarmSDK
 
       # Capture log events
       events = []
-      LogCollector.on_log { |event| events << event }
+      LogCollector.subscribe { |event| events << event }
 
       config = ClaudeCodeAgentAdapter.parse(content, :test)
 
@@ -242,7 +242,7 @@ module SwarmSDK
 
       # Capture log events
       events = []
-      LogCollector.on_log { |event| events << event }
+      LogCollector.subscribe { |event| events << event }
 
       config = ClaudeCodeAgentAdapter.parse(content, :test)
 
@@ -326,7 +326,7 @@ module SwarmSDK
 
       # Capture log events
       events = []
-      LogCollector.on_log { |event| events << event }
+      LogCollector.subscribe { |event| events << event }
 
       ClaudeCodeAgentAdapter.parse(content, :test)
 
@@ -355,7 +355,7 @@ module SwarmSDK
 
       # Capture log events
       events = []
-      LogCollector.on_log { |event| events << event }
+      LogCollector.subscribe { |event| events << event }
 
       ClaudeCodeAgentAdapter.parse(content, :test)
 
@@ -497,7 +497,7 @@ module SwarmSDK
 
       # Capture log events
       events = []
-      LogCollector.on_log { |event| events << event }
+      LogCollector.subscribe { |event| events << event }
 
       config = ClaudeCodeAgentAdapter.parse(content, :reviewer)
 

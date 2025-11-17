@@ -160,10 +160,12 @@ module SwarmSDK
     # to its dependents. Supports streaming logs if block given.
     #
     # @param prompt [String] Initial prompt for the workflow
+    # @param inherit_subscriptions [Boolean] Whether to inherit parent log subscriptions
+    #   (default: true). Set to false to isolate child workflow from parent's event stream.
     # @yield [Hash] Log entry if block given (for streaming)
     # @return [Result] Final result from last node execution
-    def execute(prompt, &block)
-      Executor.new(self).run(prompt, &block)
+    def execute(prompt, inherit_subscriptions: true, &block)
+      Executor.new(self).run(prompt, inherit_subscriptions: inherit_subscriptions, &block)
     end
 
     # Create snapshot of current workflow state
