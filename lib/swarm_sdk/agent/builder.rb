@@ -60,6 +60,7 @@ module SwarmSDK
         @default_permissions = {} # Set by SwarmBuilder from all_agents
         @memory_config = nil
         @shared_across_delegations = nil # nil = not set (will default to false in Definition)
+        @context_management_config = nil # Context management DSL hooks
       end
 
       # Set/get agent model
@@ -288,6 +289,56 @@ module SwarmSDK
         self
       end
 
+      # Configure context management handlers
+      #
+      # Define custom handlers for context warning thresholds (60%, 80%, 90%).
+      # Handlers receive a rich context object with message manipulation methods.
+      # When a custom handler is registered, automatic compression is disabled
+      # for that threshold, giving full control to the handler.
+      #
+      # @yield Context management DSL block
+      # @return [void]
+      #
+      # @example Basic compression at 60%
+      #   context_management do
+      #     on :warning_60 do |ctx|
+      #       ctx.compress_tool_results(keep_recent: 10)
+      #     end
+      #   end
+      #
+      # @example Multiple thresholds with different strategies
+      #   context_management do
+      #     on :warning_60 do |ctx|
+      #       ctx.compress_tool_results(keep_recent: 15, truncate_to: 500)
+      #     end
+      #
+      #     on :warning_80 do |ctx|
+      #       ctx.prune_old_messages(keep_recent: 30)
+      #       ctx.compress_tool_results(keep_recent: 5, truncate_to: 200)
+      #     end
+      #
+      #     on :warning_90 do |ctx|
+      #       ctx.log_action("emergency_pruning", remaining: ctx.tokens_remaining)
+      #       ctx.prune_old_messages(keep_recent: 15)
+      #     end
+      #   end
+      #
+      # @example Conditional logic based on metrics
+      #   context_management do
+      #     on :warning_80 do |ctx|
+      #       if ctx.usage_percentage > 85
+      #         ctx.prune_old_messages(keep_recent: 10)
+      #       else
+      #         ctx.compress_tool_results(keep_recent: 5)
+      #       end
+      #     end
+      #   end
+      def context_management(&block)
+        builder = ContextManagement::Builder.new
+        builder.instance_eval(&block)
+        @context_management_config = builder.build
+      end
+
       # Set permissions directly from hash (for YAML translation)
       #
       # This is intentionally separate from permissions() to keep the DSL clean.
@@ -410,6 +461,13 @@ module SwarmSDK
 
         # Convert DSL hooks to HookDefinition format
         agent_config[:hooks] = convert_hooks_to_definitions if @hooks.any?
+
+        # Merge context management hooks into agent hooks
+        if @context_management_config
+          agent_config[:hooks] ||= {}
+          agent_config[:hooks][:context_warning] ||= []
+          agent_config[:hooks][:context_warning].concat(@context_management_config)
+        end
 
         Agent::Definition.new(@name, agent_config)
       end

@@ -178,6 +178,34 @@ module SwarmSDK
             end
           end
 
+          # Translate context_management YAML config to DSL
+          if config[:context_management]
+            ctx_mgmt_config = config[:context_management]
+            context_management do
+              ctx_mgmt_config.each do |event_name, handler_cfg|
+                # Capture handler_cfg in closure for each threshold
+                captured_config = handler_cfg
+                on(event_name.to_sym) do |ctx|
+                  action = captured_config[:action]&.to_s
+
+                  case action
+                  when "compress_tool_results"
+                    ctx.compress_tool_results(
+                      keep_recent: captured_config[:keep_recent] || 10,
+                      truncate_to: captured_config[:truncate_to] || 200,
+                    )
+                  when "prune_old_messages"
+                    ctx.prune_old_messages(keep_recent: captured_config[:keep_recent] || 20)
+                  when "log_warning"
+                    ctx.log_action("threshold_warning", threshold: ctx.threshold)
+                  else
+                    raise ConfigurationError, "Unknown context_management action: #{action}"
+                  end
+                end
+              end
+            end
+          end
+
           # Let plugins handle their YAML config translation
           # This removes SDK knowledge of plugin-specific configuration
           PluginRegistry.all.each do |plugin|

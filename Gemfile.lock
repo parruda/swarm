@@ -1,18 +1,4 @@
 PATH
-  remote: ../ruby_llm
-  specs:
-    ruby_llm_pro (1.9.1)
-      base64
-      event_stream_parser (~> 1)
-      faraday (>= 1.10.0)
-      faraday-multipart (>= 1)
-      faraday-net_http (>= 1)
-      faraday-retry (>= 1)
-      marcel (~> 1.0)
-      ruby_llm-schema (~> 0.2.1)
-      zeitwerk (~> 2)
-
-PATH
   remote: .
   specs:
     claude_swarm (1.0.8)
@@ -45,13 +31,14 @@ PATH
       async (~> 2.0)
       informers (~> 1.2.1)
       rice (~> 4.6.0)
-      ruby_llm (~> 1.9.1)
+      ruby_llm_swarm (~> 1.9.1)
       swarm_sdk (~> 2.2)
       zeitwerk (~> 2.6)
     swarm_sdk (2.2.0)
       async (~> 2.0)
       async-http-faraday (~> 0.22)
       ruby_llm-mcp (~> 0.7)
+      ruby_llm_swarm (~> 1.9.1)
       zeitwerk (~> 2.6)
 
 GEM
@@ -358,6 +345,17 @@ GEM
       ruby_llm (~> 1.9)
       zeitwerk (~> 2)
     ruby_llm-schema (0.2.1)
+    ruby_llm_swarm (1.9.1)
+      async-http-faraday (~> 0.22)
+      base64
+      event_stream_parser (~> 1)
+      faraday (>= 1.10.0)
+      faraday-multipart (>= 1)
+      faraday-net_http (>= 1)
+      faraday-retry (>= 1)
+      marcel (~> 1.0)
+      ruby_llm-schema (~> 0.2.1)
+      zeitwerk (~> 2)
     rubyzip (3.1.1)
     selenium-webdriver (4.36.0)
       base64 (~> 0.2)
@@ -447,7 +445,6 @@ DEPENDENCIES
   rubocop-performance
   rubocop-rake
   rubocop-shopify
-  ruby_llm_pro!
   simplecov (~> 0.22)
   swarm_cli!
   swarm_memory!

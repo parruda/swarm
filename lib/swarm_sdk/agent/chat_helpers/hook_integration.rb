@@ -85,6 +85,11 @@ module SwarmSDK
         # Override check_context_warnings to trigger our hook system
         #
         # This wraps the default context warning behavior to also trigger hooks.
+        # Unified implementation that:
+        # 1. Emits context_threshold_hit events (for snapshot reconstruction)
+        # 2. Optionally triggers automatic compression at 60% (if no custom handler)
+        # 3. Emits context_limit_warning events (backward compatibility)
+        # 4. Triggers user-defined context_warning hooks
         def check_context_warnings
           return unless respond_to?(:context_usage_percentage)
 
@@ -98,7 +103,26 @@ module SwarmSDK
             # Mark threshold as hit
             @agent_context.hit_warning_threshold?(threshold)
 
-            # Emit existing log event (for backward compatibility)
+            # Emit context_threshold_hit event (for snapshot reconstruction) - CRITICAL
+            LogStream.emit(
+              type: "context_threshold_hit",
+              agent: @agent_context.name,
+              threshold: threshold,
+              current_usage_percentage: current_percentage.round(2),
+            )
+
+            # Check if user has defined custom handler for context_warning
+            # Custom handlers take responsibility for managing context at this threshold
+            has_custom_handler = (@hook_agent_hooks[:context_warning] || []).any?
+
+            # Trigger automatic compression at 60% ONLY if no custom handler
+            compression_triggered = false
+            if threshold == Context::COMPRESSION_THRESHOLD && !has_custom_handler
+              compressed_count = apply_automatic_compression
+              compression_triggered = compressed_count > 0
+            end
+
+            # Emit legacy context_limit_warning for backwards compatibility
             LogStream.emit(
               type: "context_limit_warning",
               agent: @agent_context.name,
@@ -109,9 +133,10 @@ module SwarmSDK
               tokens_remaining: tokens_remaining,
               context_limit: context_limit,
               metadata: @agent_context.metadata,
+              compression_triggered: compression_triggered,
             )
 
-            # Trigger hook system
+            # Trigger hook system (user-defined handlers)
             trigger_context_warning(threshold, current_percentage) if @hook_executor
           end
         end
@@ -196,6 +221,45 @@ module SwarmSDK
         end
 
         private
+
+        # Apply automatic message compression when context threshold is hit
+        #
+        # Called when context usage crosses 60% threshold and no custom handler exists.
+        # Compresses old tool results to save context window space while preserving accuracy.
+        #
+        # @return [Integer] Number of messages compressed (0 if compression not applied)
+        def apply_automatic_compression
+          return 0 unless respond_to?(:context_manager) && respond_to?(:messages)
+
+          # Calculate tokens before compression
+          tokens_before = cumulative_total_tokens
+
+          # Get compressed messages from ContextManager
+          compressed = context_manager.auto_compress_on_threshold(messages, keep_recent: 10)
+
+          # Count how many messages were actually compressed
+          messages_compressed = compressed.count do |msg|
+            msg.content.to_s.include?("[truncated for context management]")
+          end
+
+          # Replace messages using proper abstraction
+          replace_messages(compressed)
+
+          # Log compression event
+          LogStream.emit(
+            type: "context_compression",
+            agent: @agent_context.name,
+            total_messages: message_count,
+            messages_compressed: messages_compressed,
+            tokens_before: tokens_before,
+            current_usage: "#{context_usage_percentage}%",
+            compression_strategy: "progressive_tool_result_compression",
+            keep_recent: 10,
+            triggered_by: "auto_compression_threshold",
+          ) if LogStream.enabled?
+
+          messages_compressed
+        end
 
         # Trigger context_warning hooks
         #
