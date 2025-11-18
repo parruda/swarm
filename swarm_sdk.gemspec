@@ -36,7 +36,8 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency("async", "~> 2.0")
   spec.add_dependency("async-http-faraday", "~> 0.22")
-  spec.add_dependency("ruby_llm-mcp", "~> 0.7")
+  spec.add_dependency("faraday-follow_redirects", "~> 0.4")
+  spec.add_dependency("ruby_llm-mcp", "~> 0.8")
   spec.add_dependency("ruby_llm_swarm", "~> 1.9.2")
   spec.add_dependency("zeitwerk", "~> 2.6")
 end

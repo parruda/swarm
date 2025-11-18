@@ -37,7 +37,8 @@ PATH
     swarm_sdk (2.2.0)
       async (~> 2.0)
       async-http-faraday (~> 0.22)
-      ruby_llm-mcp (~> 0.7)
+      faraday-follow_redirects (~> 0.4)
+      ruby_llm-mcp (~> 0.8)
       ruby_llm_swarm (~> 1.9.2)
       zeitwerk (~> 2.6)
 
@@ -339,7 +340,7 @@ GEM
       marcel (~> 1.0)
       ruby_llm-schema (~> 0.2.1)
       zeitwerk (~> 2)
-    ruby_llm-mcp (0.7.0)
+    ruby_llm-mcp (0.8.0)
       httpx (~> 1.4)
       json-schema (~> 5.0)
       ruby_llm (~> 1.9)

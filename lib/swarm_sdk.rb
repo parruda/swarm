@@ -17,6 +17,22 @@ require "async/semaphore"
 require "ruby_llm"
 require "ruby_llm/mcp"
 
+# Patch ruby_llm-mcp's Zeitwerk loader to ignore railtie.rb when Rails is not present
+# This prevents NameError when eager loading outside of Rails applications
+# Can be removed once https://github.com/parruda/ruby_llm-mcp/issues/XXX is fixed
+unless defined?(Rails)
+  require "zeitwerk"
+  mcp_loader = nil
+  Zeitwerk::Registry.loaders.each { |l| mcp_loader = l if l.tag == "RubyLLM-mcp" }
+  if mcp_loader
+    mcp_gem_dir = Gem.loaded_specs["ruby_llm-mcp"]&.gem_dir
+    if mcp_gem_dir
+      railtie_path = File.join(mcp_gem_dir, "lib", "ruby_llm", "mcp", "railtie.rb")
+      mcp_loader.ignore(railtie_path)
+    end
+  end
+end
+
 # Configure Faraday to use async-http adapter by default
 # This ensures HTTP requests are fiber-aware and don't block the Async scheduler
 # when SwarmSDK executes LLM requests within Async/Sync blocks
