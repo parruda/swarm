@@ -1,3 +1,16 @@
+## [1.0.8]
+
+### Changed
+- **Removed model-specific parameter restrictions for OpenAI**: Simplified parameter handling by allowing OpenAI's API to validate parameters instead of enforcing client-side restrictions
+  - Removed validation that prevented using `temperature` with o-series models
+  - Removed validation that restricted `reasoning_effort` to only o-series models
+  - Eliminated `O_SERIES_MODEL_PATTERN` constant and related model pattern matching logic
+  - Parameters are now passed to the API as-is when provided, allowing flexibility as OpenAI's model capabilities evolve
+  - Reduces maintenance burden when new models are released
+  - API errors provide authoritative feedback for invalid parameter combinations
+
+### Fixed
+
 ## [1.0.7]
 
 ### Fixed

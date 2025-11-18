@@ -213,11 +213,110 @@ class CLITest < Minitest::Test
       openai_token_env: nil,
       base_url: nil,
       reasoning_effort: nil,
+      zdr: nil, # nil when not explicitly set in options
     }
 
     ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
       assert_equal(expected_config, config)
       assert_equal("parent_instance", calling_instance)
+      server_mock
+    }) do
+      @cli.mcp_serve
+    end
+
+    server_mock.verify
+  end
+
+  def test_mcp_serve_with_zdr_true
+    @cli.options = {
+      name: "zdr_instance",
+      directory: @tmpdir,
+      model: "gpt-4o-reasoning",
+      calling_instance: "parent",
+      provider: "openai",
+      api_version: "responses",
+      zdr: true,
+      reasoning_effort: "high",
+    }
+
+    server_mock = Minitest::Mock.new
+    server_mock.expect(:start, nil)
+
+    expected_config = {
+      name: "zdr_instance",
+      directory: @tmpdir,
+      directories: [@tmpdir],
+      model: "gpt-4o-reasoning",
+      prompt: nil,
+      description: nil,
+      allowed_tools: [],
+      disallowed_tools: [],
+      connections: [],
+      mcp_config_path: nil,
+      vibe: false,
+      instance_id: nil,
+      claude_session_id: nil,
+      provider: "openai",
+      temperature: nil,
+      api_version: "responses",
+      openai_token_env: nil,
+      base_url: nil,
+      reasoning_effort: "high",
+      zdr: true,
+    }
+
+    ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
+      assert_equal(expected_config, config)
+      assert_equal("parent", calling_instance)
+      assert_nil(debug) # debug is nil when not specified
+      server_mock
+    }) do
+      @cli.mcp_serve
+    end
+
+    server_mock.verify
+  end
+
+  def test_mcp_serve_with_zdr_false
+    @cli.options = {
+      name: "no_zdr_instance",
+      directory: @tmpdir,
+      model: "gpt-4o",
+      calling_instance: "parent",
+      provider: "openai",
+      zdr: false,
+    }
+
+    server_mock = Minitest::Mock.new
+    server_mock.expect(:start, nil)
+
+    expected_config = {
+      name: "no_zdr_instance",
+      directory: @tmpdir,
+      directories: [@tmpdir],
+      model: "gpt-4o",
+      prompt: nil,
+      description: nil,
+      allowed_tools: [],
+      disallowed_tools: [],
+      connections: [],
+      mcp_config_path: nil,
+      vibe: false,
+      instance_id: nil,
+      claude_session_id: nil,
+      provider: "openai",
+      temperature: nil,
+      api_version: nil,
+      openai_token_env: nil,
+      base_url: nil,
+      reasoning_effort: nil,
+      zdr: false,
+    }
+
+    ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
+      assert_equal(expected_config, config)
+      assert_equal("parent", calling_instance)
+      assert_nil(debug) # debug is nil when not specified
       server_mock
     }) do
       @cli.mcp_serve
@@ -374,6 +473,7 @@ class CLITest < Minitest::Test
       openai_token_env: nil,
       base_url: nil,
       reasoning_effort: nil,
+      zdr: nil,
     }
 
     ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
@@ -429,7 +529,7 @@ class CLITest < Minitest::Test
     end
   end
 
-  def test_mcp_serve_with_reasoning_effort_valid_o_series_model
+  def test_mcp_serve_with_reasoning_effort
     @cli.options = {
       name: "test",
       directory: ".",
@@ -451,24 +551,6 @@ class CLITest < Minitest::Test
     end
 
     server_mock.verify
-  end
-
-  def test_mcp_serve_with_reasoning_effort_invalid_model
-    @cli.options = {
-      name: "test",
-      directory: ".",
-      model: "gpt-4",
-      provider: "openai",
-      reasoning_effort: "high",
-      calling_instance: "test_caller",
-    }
-
-    _, err = capture_cli_output do
-      assert_raises(SystemExit) { @cli.mcp_serve }
-    end
-
-    assert_match(/reasoning_effort is only supported for o-series models/, err)
-    assert_match(/Current model: gpt-4/, err)
   end
 
   def test_mcp_serve_with_reasoning_effort_invalid_provider
@@ -503,97 +585,6 @@ class CLITest < Minitest::Test
     end
 
     assert_match(/reasoning_effort must be 'low', 'medium', or 'high'/, err)
-  end
-
-  def test_mcp_serve_with_reasoning_effort_all_valid_o_series_models
-    valid_models = ["o1", "o1 Preview", "o1-mini", "o1-pro", "o3", "o3-mini", "o3-pro", "o3-deep-research", "o4-mini", "o4-mini-deep-research"]
-
-    valid_models.each do |model|
-      @cli.options = {
-        name: "test",
-        directory: ".",
-        model: model,
-        provider: "openai",
-        reasoning_effort: "low",
-        calling_instance: "test_caller",
-      }
-
-      server_mock = Minitest::Mock.new
-      server_mock.expect(:start, nil)
-
-      ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
-        assert_equal("low", config[:reasoning_effort])
-        assert_equal(model, config[:model])
-        server_mock
-      }) do
-        @cli.mcp_serve
-      end
-
-      server_mock.verify
-    end
-  end
-
-  def test_mcp_serve_with_temperature_for_o_series_model_fails
-    @cli.options = {
-      name: "test",
-      directory: ".",
-      model: "o1",
-      provider: "openai",
-      temperature: 0.7,
-      calling_instance: "test_caller",
-    }
-
-    _, err = capture_cli_output do
-      assert_raises(SystemExit) { @cli.mcp_serve }
-    end
-
-    assert_match(/temperature parameter is not supported for o-series models \(o1\)/, err)
-    assert_match(/O-series models use deterministic reasoning and don't accept temperature settings/, err)
-  end
-
-  def test_mcp_serve_with_temperature_for_gpt_model_succeeds
-    @cli.options = {
-      name: "test",
-      directory: ".",
-      model: "gpt-4",
-      provider: "openai",
-      temperature: 0.8,
-      calling_instance: "test_caller",
-    }
-
-    server_mock = Minitest::Mock.new
-    server_mock.expect(:start, nil)
-
-    ClaudeSwarm::ClaudeMcpServer.stub(:new, lambda { |config, calling_instance:, calling_instance_id: nil, debug: nil| # rubocop:disable Lint/UnusedBlockArgument
-      assert_in_delta(0.8, config[:temperature])
-      assert_equal("gpt-4", config[:model])
-      server_mock
-    }) do
-      @cli.mcp_serve
-    end
-
-    server_mock.verify
-  end
-
-  def test_mcp_serve_with_temperature_all_o_series_models_fail
-    o_series_models = ["o1", "o1 Preview", "o1-mini", "o1-pro", "o3", "o3-mini", "o3-pro", "o3-deep-research", "o4-mini", "o4-mini-deep-research"]
-
-    o_series_models.each do |model|
-      @cli.options = {
-        name: "test",
-        directory: ".",
-        model: model,
-        provider: "openai",
-        temperature: 0.5,
-        calling_instance: "test_caller",
-      }
-
-      _, err = capture_cli_output do
-        assert_raises(SystemExit) { @cli.mcp_serve }
-      end
-
-      assert_match(/temperature parameter is not supported for o-series models/, err)
-    end
   end
 
   def test_start_unexpected_error_without_verbose

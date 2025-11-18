@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    claude_swarm (1.0.7)
+    claude_swarm (1.0.8)
       claude-code-sdk-ruby (~> 0.1.6)
       faraday-net_http_persistent (~> 2.0)
       faraday-retry (~> 2.0)
@@ -292,7 +292,7 @@ GEM
       rubocop (>= 1.72.1)
     rubocop-shopify (2.17.1)
       rubocop (~> 1.62)
-    ruby-mcp-client (0.8.1)
+    ruby-mcp-client (0.9.0)
       faraday (~> 2.0)
       faraday-follow_redirects (~> 0.3)
       faraday-retry (~> 2.0)

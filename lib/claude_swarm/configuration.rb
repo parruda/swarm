@@ -4,15 +4,13 @@ module ClaudeSwarm
   class Configuration
     # Frozen constants for validation
     VALID_PROVIDERS = ["claude", "openai"].freeze
-    OPENAI_SPECIFIC_FIELDS = ["temperature", "api_version", "openai_token_env", "base_url", "reasoning_effort"].freeze
+    OPENAI_SPECIFIC_FIELDS = ["temperature", "api_version", "openai_token_env", "base_url", "reasoning_effort", "zdr"].freeze
     VALID_API_VERSIONS = ["chat_completion", "responses"].freeze
     VALID_REASONING_EFFORTS = ["low", "medium", "high"].freeze
 
     # Regex patterns
     ENV_VAR_PATTERN = /\$\{([^}]+)\}/
     ENV_VAR_WITH_DEFAULT_PATTERN = /\$\{([^:}]+)(:=([^}]*))?\}/
-    O_SERIES_MODEL_PATTERN = /^(o\d+(\s+(Preview|preview))?(-pro|-mini|-deep-research|-mini-deep-research)?|gpt-5(-mini|-nano)?)$/
-
     attr_reader :config, :config_path, :swarm, :swarm_name, :main_instance, :instances, :base_dir
 
     def initialize(config_path, base_dir: nil, options: {})
@@ -165,7 +163,6 @@ module ClaudeSwarm
 
       # Parse provider (optional, defaults to claude)
       provider = config["provider"]
-      model = config["model"]
 
       # Validate provider value if specified
       if provider && !VALID_PROVIDERS.include?(provider)
@@ -183,17 +180,6 @@ module ClaudeSwarm
         unless VALID_REASONING_EFFORTS.include?(config["reasoning_effort"])
           raise Error, "Instance '#{name}' has invalid reasoning_effort '#{config["reasoning_effort"]}'. Must be 'low', 'medium', or 'high'"
         end
-
-        # Validate it's only used with o-series or gpt-5 models
-        # Support patterns like: o1, o1-mini, o1-pro, o1 Preview, o3-deep-research, o4-mini-deep-research, gpt-5, gpt-5-mini, gpt-5-nano, etc.
-        unless model&.match?(O_SERIES_MODEL_PATTERN)
-          raise Error, "Instance '#{name}' has reasoning_effort but model '#{model}' is not an o-series or gpt-5 model (o1, o1 Preview, o1-mini, o1-pro, o3, o3-mini, o3-pro, o3-deep-research, o4-mini, o4-mini-deep-research, gpt-5, gpt-5-mini, gpt-5-nano, etc.)"
-        end
-      end
-
-      # Validate temperature is not used with o-series or gpt-5 models when provider is openai
-      if provider == "openai" && config["temperature"] && model&.match?(O_SERIES_MODEL_PATTERN)
-        raise Error, "Instance '#{name}' has temperature parameter but model '#{model}' is an o-series or gpt-5 model. O-series and gpt-5 models use deterministic reasoning and don't accept temperature settings"
       end
 
       # Validate OpenAI-specific fields only when provider is not "openai"
@@ -246,6 +232,7 @@ module ClaudeSwarm
         instance_config[:openai_token_env] = config["openai_token_env"] || "OPENAI_API_KEY"
         instance_config[:base_url] = config["base_url"]
         instance_config[:reasoning_effort] = config["reasoning_effort"] if config["reasoning_effort"]
+        instance_config[:zdr] = config["zdr"] if config.key?("zdr")
         # Default vibe to true for OpenAI instances if not specified
         instance_config[:vibe] = true if config["vibe"].nil?
       elsif config["vibe"].nil?

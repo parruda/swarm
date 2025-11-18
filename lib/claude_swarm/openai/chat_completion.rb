@@ -5,7 +5,7 @@ module ClaudeSwarm
     class ChatCompletion
       MAX_TURNS_WITH_TOOLS = 100_000 # virtually infinite
 
-      def initialize(openai_client:, mcp_client:, available_tools:, executor:, instance_name:, model:, temperature: nil, reasoning_effort: nil)
+      def initialize(openai_client:, mcp_client:, available_tools:, executor:, instance_name:, model:, temperature: nil, reasoning_effort: nil, zdr: false)
         @openai_client = openai_client
         @mcp_client = mcp_client
         @available_tools = available_tools
@@ -14,6 +14,7 @@ module ClaudeSwarm
         @model = model
         @temperature = temperature
         @reasoning_effort = reasoning_effort
+        @zdr = zdr # Not used in chat_completion API, but kept for compatibility
         @conversation_messages = []
       end
 
@@ -67,17 +68,8 @@ module ClaudeSwarm
           messages: messages,
         }
 
-        # Only add temperature for non-o-series models
-        # O-series models don't support temperature parameter
-        if @temperature && !@model.match?(ClaudeSwarm::Configuration::O_SERIES_MODEL_PATTERN)
-          parameters[:temperature] = @temperature
-        end
-
-        # Only add reasoning_effort for o-series models
-        # reasoning_effort is only supported by o-series models: o1, o1 Preview, o1-mini, o1-pro, o3, o3-mini, o3-pro, o3-deep-research, o4-mini, o4-mini-deep-research, etc.
-        if @reasoning_effort && @model.match?(ClaudeSwarm::Configuration::O_SERIES_MODEL_PATTERN)
-          parameters[:reasoning_effort] = @reasoning_effort
-        end
+        parameters[:temperature] = @temperature if @temperature
+        parameters[:reasoning_effort] = @reasoning_effort if @reasoning_effort
 
         # Add tools if available
         parameters[:tools] = @mcp_client.to_openai_tools if @available_tools&.any? && @mcp_client

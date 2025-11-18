@@ -183,4 +183,164 @@ class McpGeneratorArgsTest < Minitest::Test
   ensure
     ENV.delete("CUSTOM_OPENAI_KEY")
   end
+
+  def test_mcp_config_with_zdr_parameter
+    # Test with zdr: true
+    openai_config_with_zdr_true = <<~YAML
+      version: 1
+      swarm:
+        name: "ZDR Test Swarm"
+        main: lead
+        instances:
+          lead:
+            description: "Lead developer"
+            directory: .
+            model: opus
+            connections: [reasoning_helper]
+          reasoning_helper:
+            description: "AI with deep reasoning"
+            directory: .
+            provider: openai
+            model: gpt-4o-reasoning
+            api_version: responses
+            openai_token_env: TEST_OPENAI_KEY
+            reasoning_effort: high
+            zdr: true
+    YAML
+
+    Dir.mktmpdir do |tmpdir|
+      # Write the config file
+      config_path = File.join(tmpdir, "claude-swarm.yml")
+      File.write(config_path, openai_config_with_zdr_true)
+
+      # Set environment variable for test
+      ENV["TEST_OPENAI_KEY"] = "sk-test-key"
+
+      # Create the configuration and generator
+      config = ClaudeSwarm::Configuration.new(config_path, base_dir: tmpdir)
+      generator = ClaudeSwarm::McpGenerator.new(config)
+
+      # Generate MCP configs
+      generator.generate_all
+
+      # Read the lead instance MCP config
+      lead_config = read_mcp_config("lead")
+
+      # Check that reasoning_helper connection includes zdr arg
+      reasoning_helper_mcp = lead_config["mcpServers"]["reasoning_helper"]
+      args = reasoning_helper_mcp["args"]
+
+      # Should include zdr flag with value "true"
+      assert_includes(args, "--zdr")
+      zdr_index = args.index("--zdr")
+
+      assert_equal("true", args[zdr_index + 1])
+
+      # Should also include reasoning_effort
+      assert_includes(args, "--reasoning-effort")
+      assert_includes(args, "high")
+
+      # Should include the correct openai_token_env
+      assert_includes(args, "--openai-token-env")
+      assert_includes(args, "TEST_OPENAI_KEY")
+    end
+
+    # Test with zdr: false
+    openai_config_with_zdr_false = <<~YAML
+      version: 1
+      swarm:
+        name: "ZDR False Test Swarm"
+        main: lead
+        instances:
+          lead:
+            description: "Lead developer"
+            directory: .
+            model: opus
+            connections: [standard_helper]
+          standard_helper:
+            description: "Standard AI helper"
+            directory: .
+            provider: openai
+            model: gpt-4o
+            openai_token_env: TEST_OPENAI_KEY
+            zdr: false
+    YAML
+
+    Dir.mktmpdir do |tmpdir|
+      # Write the config file
+      config_path = File.join(tmpdir, "claude-swarm.yml")
+      File.write(config_path, openai_config_with_zdr_false)
+
+      # Set environment variable for test
+      ENV["TEST_OPENAI_KEY"] = "sk-test-key"
+
+      # Create the configuration and generator
+      config = ClaudeSwarm::Configuration.new(config_path, base_dir: tmpdir)
+      generator = ClaudeSwarm::McpGenerator.new(config)
+
+      # Generate MCP configs
+      generator.generate_all
+
+      # Read the lead instance MCP config
+      lead_config = read_mcp_config("lead")
+
+      # Check that standard_helper connection includes zdr arg with false
+      standard_helper_mcp = lead_config["mcpServers"]["standard_helper"]
+      args = standard_helper_mcp["args"]
+
+      # Should include zdr flag with value "false"
+      assert_includes(args, "--zdr")
+      zdr_index = args.index("--zdr")
+
+      assert_equal("false", args[zdr_index + 1])
+    end
+
+    # Test without zdr parameter (should not include --zdr)
+    openai_config_without_zdr = <<~YAML
+      version: 1
+      swarm:
+        name: "No ZDR Test Swarm"
+        main: lead
+        instances:
+          lead:
+            description: "Lead developer"
+            directory: .
+            model: opus
+            connections: [basic_helper]
+          basic_helper:
+            description: "Basic AI helper"
+            directory: .
+            provider: openai
+            model: gpt-4o
+            openai_token_env: TEST_OPENAI_KEY
+    YAML
+
+    Dir.mktmpdir do |tmpdir|
+      # Write the config file
+      config_path = File.join(tmpdir, "claude-swarm.yml")
+      File.write(config_path, openai_config_without_zdr)
+
+      # Set environment variable for test
+      ENV["TEST_OPENAI_KEY"] = "sk-test-key"
+
+      # Create the configuration and generator
+      config = ClaudeSwarm::Configuration.new(config_path, base_dir: tmpdir)
+      generator = ClaudeSwarm::McpGenerator.new(config)
+
+      # Generate MCP configs
+      generator.generate_all
+
+      # Read the lead instance MCP config
+      lead_config = read_mcp_config("lead")
+
+      # Check that basic_helper connection does NOT include zdr arg
+      basic_helper_mcp = lead_config["mcpServers"]["basic_helper"]
+      args = basic_helper_mcp["args"]
+
+      # Should NOT include zdr flag when not specified
+      refute_includes(args, "--zdr")
+    end
+  ensure
+    ENV.delete("TEST_OPENAI_KEY")
+  end
 end

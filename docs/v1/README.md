@@ -372,6 +372,7 @@ When using `provider: openai`, the following additional fields are available:
 - **openai_token_env**: Environment variable name for OpenAI API key (default: "OPENAI_API_KEY")
 - **base_url**: Custom base URL for OpenAI API (optional)
 - **reasoning_effort**: Reasoning effort for O-series models only - "low", "medium", or "high"
+- **zdr**: Zero Data Retention mode (boolean) - when set to `true`, disables conversation continuity by setting `previous_response_id` to nil (responses API only)
 
 **Important Notes:**
 
@@ -428,6 +429,15 @@ reasoning_instance:
   reasoning_effort: medium # Only for O-series models
   api_version: responses # Can use either API version
   prompt: "You are a reasoning assistant for complex problem solving"
+
+# Instance with Zero Data Retention mode
+zdr_instance:
+  description: "Privacy-focused assistant with no conversation memory"
+  provider: openai
+  model: gpt-4o
+  api_version: responses # ZDR only works with responses API
+  zdr: true # Disables conversation continuity
+  prompt: "You are a privacy-focused assistant that handles sensitive data"
 ```
 
 ### MCP Server Types

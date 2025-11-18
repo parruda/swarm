@@ -36,6 +36,7 @@ module ClaudeSwarm
           openai_token_env: instance_config[:openai_token_env],
           base_url: instance_config[:base_url],
           reasoning_effort: instance_config[:reasoning_effort],
+          zdr: instance_config[:zdr],
         )
       else
         # Default Claude behavior - always use SDK

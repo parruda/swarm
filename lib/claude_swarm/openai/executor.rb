@@ -31,7 +31,7 @@ module ClaudeSwarm
         instance_name: nil, instance_id: nil, calling_instance: nil, calling_instance_id: nil,
         claude_session_id: nil, additional_directories: [], debug: false,
         temperature: nil, api_version: "chat_completion", openai_token_env: "OPENAI_API_KEY",
-        base_url: nil, reasoning_effort: nil)
+        base_url: nil, reasoning_effort: nil, zdr: false)
         # Call parent initializer for common attributes
         super(
           working_directory: working_directory,
@@ -52,6 +52,7 @@ module ClaudeSwarm
         @api_version = api_version
         @base_url = base_url
         @reasoning_effort = reasoning_effort
+        @zdr = zdr
 
         # Conversation state for maintaining context
         @conversation_messages = []
@@ -162,6 +163,7 @@ module ClaudeSwarm
           model: @model,
           temperature: @temperature,
           reasoning_effort: @reasoning_effort,
+          zdr: @zdr,
         }
 
         if @api_version == "responses"
