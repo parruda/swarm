@@ -15,10 +15,13 @@ module SwarmSDK
       # Use for temporary, cross-agent communication within a single session.
       class ScratchpadStorage < Storage
         # Initialize scratchpad storage (always volatile)
-        def initialize
+        #
+        # @param total_size_limit [Integer, nil] Maximum total size in bytes (defaults to Defaults::Storage::TOTAL_SIZE_BYTES)
+        def initialize(total_size_limit: nil)
           super() # Initialize parent Storage class
           @entries = {}
           @total_size = 0
+          @total_size_limit = total_size_limit || Defaults::Storage::TOTAL_SIZE_BYTES
           @mutex = Mutex.new
         end
 
@@ -49,8 +52,8 @@ module SwarmSDK
             new_total_size = @total_size - existing_size + content_size
 
             # Check total size limit
-            if new_total_size > Defaults::Storage::TOTAL_SIZE_BYTES
-              raise ArgumentError, "Scratchpad full (#{format_bytes(Defaults::Storage::TOTAL_SIZE_BYTES)} limit). " \
+            if new_total_size > @total_size_limit
+              raise ArgumentError, "Scratchpad full (#{format_bytes(@total_size_limit)} limit). " \
                 "Current: #{format_bytes(@total_size)}, " \
                 "Would be: #{format_bytes(new_total_size)}. " \
                 "Clear old entries or use smaller content."

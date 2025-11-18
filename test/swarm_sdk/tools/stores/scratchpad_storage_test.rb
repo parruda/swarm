@@ -97,22 +97,16 @@ module SwarmSDK
         end
 
         def test_write_exceeding_total_size_raises_error
-          # Create entries that approach the limit
-          # This is a bit contrived since TOTAL_SIZE_BYTES is 100GB
-          # We'll test the logic by stubbing the constant
+          # Create storage with a small limit for testing
+          small_storage = ScratchpadStorage.new(total_size_limit: 100)
 
-          original_max = Defaults::Storage::TOTAL_SIZE_BYTES
-          Defaults::Storage.const_set(:TOTAL_SIZE_BYTES, 100) # Temporarily set to 100 bytes
-
-          @storage.write(file_path: "file1.txt", content: "a" * 50, title: "File 1")
+          small_storage.write(file_path: "file1.txt", content: "a" * 50, title: "File 1")
 
           error = assert_raises(ArgumentError) do
-            @storage.write(file_path: "file2.txt", content: "b" * 60, title: "File 2")
+            small_storage.write(file_path: "file2.txt", content: "b" * 60, title: "File 2")
           end
 
           assert_match(/Scratchpad full/, error.message)
-        ensure
-          Defaults::Storage.const_set(:TOTAL_SIZE_BYTES, original_max) if original_max
         end
 
         # Read tests
