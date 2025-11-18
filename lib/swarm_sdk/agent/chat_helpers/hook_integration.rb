@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat < RubyLLM::Chat
+    module ChatHelpers
       # Integrates SwarmSDK's hook system with Agent::Chat
       #
       # Responsibilities:
@@ -71,43 +71,25 @@ module SwarmSDK
           @hook_agent_hooks[event].sort_by! { |cb| -cb.priority }
         end
 
-        # Override ask to trigger user_prompt hooks
+        # NOTE: The ask() method override has been removed.
         #
-        # This wraps the Agent::Chat#ask implementation to inject hooks AFTER
-        # system reminders are handled.
+        # In the new wrapper-based architecture, Agent::Chat#ask handles:
+        # 1. System reminder injection
+        # 2. User prompt hooks via trigger_user_prompt
+        # 3. Global semaphore acquisition
+        # 4. Delegation to RubyLLM::Chat
         #
-        # @param prompt [String] User prompt
-        # @param options [Hash] Additional options (may include source: "user" or "delegation")
-        # @return [RubyLLM::Message] LLM response
-        def ask(prompt, **options)
-          # Extract source for hook tracking (not passed to RubyLLM)
-          source = options.delete(:source) || "user"
-
-          # Trigger user_prompt hook before sending to LLM (can halt or modify prompt)
-          if @hook_executor
-            hook_result = trigger_user_prompt(prompt, source: source)
-
-            # Check if hook halted execution
-            if hook_result[:halted]
-              # Return a halted message instead of calling LLM
-              return RubyLLM::Message.new(
-                role: :assistant,
-                content: hook_result[:halt_message],
-                model_id: model.id,
-              )
-            end
-
-            # Use modified prompt if hook provided one (stdout injection)
-            prompt = hook_result[:modified_prompt] if hook_result[:modified_prompt]
-          end
-
-          # Call original ask implementation (Agent::Chat handles system reminders)
-          super(prompt, **options)
-        end
+        # The hook integration is now done directly in Agent::Chat#ask rather than
+        # through module override, since there's no inheritance chain to call super on.
 
         # Override check_context_warnings to trigger our hook system
         #
         # This wraps the default context warning behavior to also trigger hooks.
+        # Unified implementation that:
+        # 1. Emits context_threshold_hit events (for snapshot reconstruction)
+        # 2. Optionally triggers automatic compression at 60% (if no custom handler)
+        # 3. Emits context_limit_warning events (backward compatibility)
+        # 4. Triggers user-defined context_warning hooks
         def check_context_warnings
           return unless respond_to?(:context_usage_percentage)
 
@@ -121,20 +103,40 @@ module SwarmSDK
             # Mark threshold as hit
             @agent_context.hit_warning_threshold?(threshold)
 
-            # Emit existing log event (for backward compatibility)
+            # Emit context_threshold_hit event (for snapshot reconstruction) - CRITICAL
+            LogStream.emit(
+              type: "context_threshold_hit",
+              agent: @agent_context.name,
+              threshold: threshold,
+              current_usage_percentage: current_percentage.round(2),
+            )
+
+            # Check if user has defined custom handler for context_warning
+            # Custom handlers take responsibility for managing context at this threshold
+            has_custom_handler = (@hook_agent_hooks[:context_warning] || []).any?
+
+            # Trigger automatic compression at 60% ONLY if no custom handler
+            compression_triggered = false
+            if threshold == Context::COMPRESSION_THRESHOLD && !has_custom_handler
+              compressed_count = apply_automatic_compression
+              compression_triggered = compressed_count > 0
+            end
+
+            # Emit legacy context_limit_warning for backwards compatibility
             LogStream.emit(
               type: "context_limit_warning",
               agent: @agent_context.name,
-              model: model.id,
+              model: model_id,
               threshold: "#{threshold}%",
               current_usage: "#{current_percentage}%",
               tokens_used: cumulative_total_tokens,
               tokens_remaining: tokens_remaining,
               context_limit: context_limit,
               metadata: @agent_context.metadata,
+              compression_triggered: compression_triggered,
             )
 
-            # Trigger hook system
+            # Trigger hook system (user-defined handlers)
             trigger_context_warning(threshold, current_percentage) if @hook_executor
           end
         end
@@ -220,6 +222,45 @@ module SwarmSDK
 
         private
 
+        # Apply automatic message compression when context threshold is hit
+        #
+        # Called when context usage crosses 60% threshold and no custom handler exists.
+        # Compresses old tool results to save context window space while preserving accuracy.
+        #
+        # @return [Integer] Number of messages compressed (0 if compression not applied)
+        def apply_automatic_compression
+          return 0 unless respond_to?(:context_manager) && respond_to?(:messages)
+
+          # Calculate tokens before compression
+          tokens_before = cumulative_total_tokens
+
+          # Get compressed messages from ContextManager
+          compressed = context_manager.auto_compress_on_threshold(messages, keep_recent: 10)
+
+          # Count how many messages were actually compressed
+          messages_compressed = compressed.count do |msg|
+            msg.content.to_s.include?("[truncated for context management]")
+          end
+
+          # Replace messages using proper abstraction
+          replace_messages(compressed)
+
+          # Log compression event
+          LogStream.emit(
+            type: "context_compression",
+            agent: @agent_context.name,
+            total_messages: message_count,
+            messages_compressed: messages_compressed,
+            tokens_before: tokens_before,
+            current_usage: "#{context_usage_percentage}%",
+            compression_strategy: "progressive_tool_result_compression",
+            keep_recent: 10,
+            triggered_by: "auto_compression_threshold",
+          ) if LogStream.enabled?
+
+          messages_compressed
+        end
+
         # Trigger context_warning hooks
         #
         # Hooks have access to the chat instance via metadata[:chat]
@@ -263,9 +304,9 @@ module SwarmSDK
         def trigger_user_prompt(prompt, source: "user")
           return { halted: false, modified_prompt: prompt } unless @hook_executor
 
-          # Filter out delegation tools from tools list
-          actual_tools = if respond_to?(:tools) && @agent_context
-            tools.keys.reject { |tool_name| @agent_context.delegation_tool?(tool_name.to_s) }
+          # Get tool names without delegation tools using proper abstraction
+          actual_tools = if respond_to?(:non_delegation_tool_names) && @agent_context
+            non_delegation_tool_names
           else
             []
           end
@@ -281,9 +322,9 @@ module SwarmSDK
             event: :user_prompt,
             metadata: {
               prompt: prompt,
-              message_count: messages.size,
-              model: model.id,
-              provider: model.provider,
+              message_count: message_count,
+              model: model_id,
+              provider: model_provider,
               tools: actual_tools,
               delegates_to: delegate_agents,
               source: source,
@@ -371,14 +412,35 @@ module SwarmSDK
           digest = case tool_call.name
           when "Read"
             Tools::Stores::ReadTracker.get_read_files(@agent_context.name)[File.expand_path(path)]
-          when "MemoryRead"
-            # Only query if SwarmMemory is loaded (optional dependency)
-            if defined?(SwarmMemory::Core::StorageReadTracker)
-              SwarmMemory::Core::StorageReadTracker.get_read_entries(@agent_context.name)[path]
-            end
+          else
+            # Query registered plugins for digest (e.g., MemoryRead from SwarmMemory plugin)
+            query_plugin_for_digest(tool_call.name, path)
           end
 
           digest ? { read_digest: digest, read_path: path } : {}
+        end
+
+        # Query registered plugins for a tool result digest
+        #
+        # This allows plugins to provide digest tracking for their own tools
+        # (e.g., MemoryRead tracking in SwarmMemory plugin).
+        #
+        # @param tool_name [String] Name of the tool
+        # @param path [String] Path or identifier of the resource
+        # @return [String, nil] Digest from first plugin that responds, or nil
+        def query_plugin_for_digest(tool_name, path)
+          return unless @agent_context
+
+          PluginRegistry.all.each do |plugin|
+            digest = plugin.get_tool_result_digest(
+              agent_name: @agent_context.name,
+              tool_name: tool_name,
+              path: path,
+            )
+            return digest if digest
+          end
+
+          nil
         end
 
         # Wrap a tool result in our Hooks::ToolResult value object

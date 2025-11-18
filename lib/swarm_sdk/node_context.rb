@@ -168,7 +168,7 @@ module SwarmSDK
     end
 
     # Control flow methods for transformers
-    # These return special hashes that NodeOrchestrator recognizes
+    # These return special hashes that Workflow recognizes
 
     # Skip current node's LLM execution and return content immediately
     #

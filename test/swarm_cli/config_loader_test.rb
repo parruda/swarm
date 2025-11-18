@@ -198,7 +198,7 @@ class ConfigLoaderTest < Minitest::Test
       SwarmCLI::ConfigLoader.load(config_path)
     end
 
-    assert_match(/must return a SwarmSDK::Swarm or SwarmSDK::NodeOrchestrator instance/, error.message)
+    assert_match(/must return a SwarmSDK::Swarm or SwarmSDK::Workflow instance/, error.message)
     assert_match(/Got: String/, error.message)
   end
 

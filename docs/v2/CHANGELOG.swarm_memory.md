@@ -5,7 +5,13 @@ All notable changes to SwarmMemory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.4]
+
+### Changed
+
+- Updated documentation to reference `Workflow` instead of `NodeOrchestrator`
+- Memory configuration preserved when agents are cloned in `Workflow` (formerly `NodeOrchestrator`)
+- No functional changes - fully compatible with SwarmSDK refactoring
 
 ## [2.1.3] - 2025-11-06
 

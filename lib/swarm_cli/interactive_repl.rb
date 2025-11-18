@@ -534,7 +534,7 @@ module SwarmCLI
       lead = @swarm.agent(@swarm.lead_agent)
 
       # Clear the agent's conversation history
-      lead.reset_messages!
+      lead.replace_messages([])
 
       # Clear REPL conversation history
       @conversation_history.clear
@@ -575,7 +575,7 @@ module SwarmCLI
         case tool_name
         when /^Memory/, "LoadSkill"
           memory_tools << tool_name
-        when /^DelegateTaskTo/
+        when /^WorkWith/
           delegation_tools << tool_name
         when /^mcp__/
           mcp_tools << tool_name

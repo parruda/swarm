@@ -24,7 +24,7 @@ module RuboCop
 
         # Match method calls
         def on_send(node)
-          banned_methods = [:instance_variable_get, :instance_variable_set, :send]
+          banned_methods = [:instance_variable_get, :instance_variable_set, :send, :const_set, :const_get]
 
           method_name = node.method_name
           return unless banned_methods.include?(method_name)

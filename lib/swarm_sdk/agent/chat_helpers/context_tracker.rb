@@ -2,7 +2,7 @@
 
 module SwarmSDK
   module Agent
-    class Chat < RubyLLM::Chat
+    module ChatHelpers
       # Manages context tracking, delegation tracking, and logging callbacks
       #
       # Responsibilities:
@@ -63,63 +63,17 @@ module SwarmSDK
 
         # Extract agent name from delegation tool name
         #
-        # Converts "DelegateTaskTo[AgentName]" to "agent_name"
-        # Example: "DelegateTaskToWorker" -> "worker"
+        # Converts "#{Tools::Delegate::TOOL_NAME_PREFIX}[AgentName]" to "agent_name"
+        # Example: "WorkWithWorker" -> "worker"
         #
         # @param tool_name [String] Delegation tool name
         # @return [String] Agent name
         def extract_delegate_agent_name(tool_name)
-          # Remove "DelegateTaskTo" prefix and lowercase first letter
-          agent_name = tool_name.to_s.sub(/^DelegateTaskTo/, "")
+          # Remove tool name prefix and lowercase first letter
+          agent_name = tool_name.to_s.sub(/^#{Tools::Delegate::TOOL_NAME_PREFIX}/, "")
           # Convert from PascalCase to lowercase (e.g., "Worker" -> "worker", "BackendDev" -> "backendDev")
           agent_name[0] = agent_name[0].downcase unless agent_name.empty?
           agent_name
-        end
-
-        # Check if context usage has crossed warning thresholds and emit warnings
-        #
-        # This should be called after each LLM response to check if we've crossed
-        # any warning thresholds (80%, 90%, etc.)
-        #
-        # @return [void]
-        def check_context_warnings
-          current_percentage = @chat.context_usage_percentage
-
-          Context::CONTEXT_WARNING_THRESHOLDS.each do |threshold|
-            # Only warn once per threshold
-            next if @agent_context.warning_threshold_hit?(threshold)
-            next if current_percentage < threshold
-
-            # Mark threshold as hit and emit warning
-            @agent_context.hit_warning_threshold?(threshold)
-
-            # Emit context_threshold_hit event for snapshot reconstruction
-            LogStream.emit(
-              type: "context_threshold_hit",
-              agent: @agent_context.name,
-              threshold: threshold,
-              current_usage_percentage: current_percentage.round(2),
-            )
-
-            # Trigger automatic compression at 60% threshold
-            if threshold == Context::COMPRESSION_THRESHOLD
-              trigger_automatic_compression
-            end
-
-            # Emit legacy context_limit_warning for backwards compatibility
-            LogStream.emit(
-              type: "context_limit_warning",
-              agent: @agent_context.name,
-              model: @chat.model.id,
-              threshold: "#{threshold}%",
-              current_usage: "#{current_percentage}%",
-              tokens_used: @chat.cumulative_total_tokens,
-              tokens_remaining: @chat.tokens_remaining,
-              context_limit: @chat.context_limit,
-              metadata: @agent_context.metadata,
-              compression_triggered: threshold == Context::COMPRESSION_THRESHOLD,
-            )
-          end
         end
 
         private
@@ -187,6 +141,10 @@ module SwarmSDK
                 # Final response (finish_reason: "stop") - fire agent_stop
                 trigger_agent_stop(message, tool_executions: @tool_executions)
               end
+
+              # Check context warnings after each assistant message
+              # Uses unified implementation in HookIntegration
+              @chat.check_context_warnings if @chat.respond_to?(:check_context_warnings)
             when :tool
               # Handle delegation tracking and logging (technical plumbing)
               if @agent_context.delegation?(call_id: message.tool_call_id)
@@ -304,43 +262,6 @@ module SwarmSDK
             callbacks: agent_hooks,
           )
         end
-      end
-
-      # Trigger automatic message compression
-      #
-      # Called when context usage crosses 60% threshold. Compresses old tool
-      # results to save context window space while preserving accuracy.
-      #
-      # @return [void]
-      def trigger_automatic_compression
-        return unless @chat.respond_to?(:context_manager)
-
-        # Calculate tokens before compression
-        tokens_before = @chat.cumulative_total_tokens
-
-        # Get compressed messages from ContextManager
-        compressed = @chat.context_manager.auto_compress_on_threshold(@chat.messages, keep_recent: 10)
-
-        # Count how many messages were actually compressed
-        messages_compressed = compressed.count do |msg|
-          msg.content.to_s.include?("[truncated for context management]")
-        end
-
-        # Replace messages array with compressed version
-        @chat.messages.clear
-        compressed.each { |msg| @chat.messages << msg }
-
-        # Log compression event
-        LogStream.emit(
-          type: "context_compression",
-          agent: @agent_context.name,
-          total_messages: @chat.messages.size,
-          messages_compressed: messages_compressed,
-          tokens_before: tokens_before,
-          current_usage: "#{@chat.context_usage_percentage}%",
-          compression_strategy: "progressive_tool_result_compression",
-          keep_recent: 10,
-        ) if LogStream.enabled?
       end
     end
   end

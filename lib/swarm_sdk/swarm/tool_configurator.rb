@@ -57,6 +57,9 @@ module SwarmSDK
 
       # Create a tool instance by name
       #
+      # Uses the Registry factory pattern to instantiate tools based on their
+      # declared requirements. This eliminates the need for a giant case statement.
+      #
       # File tools and TodoWrite require agent context for tracking state.
       # Scratchpad tools require shared scratchpad instance.
       # Plugin tools are delegated to their respective plugins.
@@ -77,47 +80,14 @@ module SwarmSDK
           return create_plugin_tool(tool_name_sym, agent_name, directory, chat, agent_definition)
         end
 
-        case tool_name_sym
-        when :Read
-          Tools::Read.new(agent_name: agent_name, directory: directory)
-        when :Write
-          Tools::Write.new(agent_name: agent_name, directory: directory)
-        when :Edit
-          Tools::Edit.new(agent_name: agent_name, directory: directory)
-        when :MultiEdit
-          Tools::MultiEdit.new(agent_name: agent_name, directory: directory)
-        when :Bash
-          Tools::Bash.new(directory: directory)
-        when :Glob
-          Tools::Glob.new(directory: directory)
-        when :Grep
-          Tools::Grep.new(directory: directory)
-        when :TodoWrite
-          Tools::TodoWrite.new(agent_name: agent_name) # TodoWrite doesn't need directory
-        when :ScratchpadWrite
-          Tools::Scratchpad::ScratchpadWrite.create_for_scratchpad(@scratchpad_storage)
-        when :ScratchpadRead
-          Tools::Scratchpad::ScratchpadRead.create_for_scratchpad(@scratchpad_storage)
-        when :ScratchpadList
-          Tools::Scratchpad::ScratchpadList.create_for_scratchpad(@scratchpad_storage)
-        when :Think
-          Tools::Think.new
-        when :Clock
-          Tools::Clock.new
-        else
-          # Regular tools - get class from registry and instantiate
-          tool_class = Tools::Registry.get(tool_name_sym)
-          raise ConfigurationError, "Unknown tool: #{tool_name}" unless tool_class
+        # Use Registry factory pattern - tools declare their own requirements
+        context = {
+          agent_name: agent_name,
+          directory: directory,
+          scratchpad_storage: @scratchpad_storage,
+        }
 
-          # Check if tool is marked as :special but not handled in case statement
-          if tool_class == :special
-            raise ConfigurationError,
-              "Tool '#{tool_name}' requires special initialization but is not handled in create_tool_instance. " \
-                "This is a bug - #{tool_name} should be added to the case statement above."
-          end
-
-          tool_class.new
-        end
+        Tools::Registry.create(tool_name_sym, context)
       end
 
       # Wrap a tool instance with permissions validator if configured
@@ -171,14 +141,8 @@ module SwarmSDK
           # Create tool instance
           tool_instance = create_tool_instance(tool_name, agent_name, agent_definition.directory)
 
-          # Wrap with permissions validator if configured
-          tool_instance = wrap_tool_with_permissions(
-            tool_instance,
-            permissions_config,
-            agent_definition,
-          )
-
-          chat.with_tool(tool_instance)
+          # Wrap with permissions and add to chat
+          wrap_and_add_tool(chat, tool_instance, permissions_config, agent_definition)
         end
       end
 
@@ -225,19 +189,36 @@ module SwarmSDK
         return if tool_disabled?(tool_name, agent_definition.disable_default_tools)
 
         tool_instance = create_tool_instance(tool_name, agent_name, agent_definition.directory)
+        permissions_config = resolve_default_permissions(tool_name, agent_definition)
 
-        # Resolve permissions for default tool
-        permissions_config = agent_definition.agent_permissions[tool_name] ||
-          agent_definition.default_permissions[tool_name]
+        wrap_and_add_tool(chat, tool_instance, permissions_config, agent_definition)
+      end
 
-        # Wrap with permissions validator if configured
-        tool_instance = wrap_tool_with_permissions(
-          tool_instance,
-          permissions_config,
-          agent_definition,
-        )
+      # Wrap tool with permissions and add to chat
+      #
+      # This is the common pattern for registering tools:
+      # 1. Wrap with permissions validator (if configured)
+      # 2. Add to chat
+      #
+      # @param chat [Agent::Chat] The chat instance
+      # @param tool_instance [RubyLLM::Tool] Tool instance
+      # @param permissions_config [Hash, nil] Permissions configuration
+      # @param agent_definition [Agent::Definition] Agent definition
+      # @return [void]
+      def wrap_and_add_tool(chat, tool_instance, permissions_config, agent_definition)
+        tool_instance = wrap_tool_with_permissions(tool_instance, permissions_config, agent_definition)
+        chat.add_tool(tool_instance)
+      end
 
-        chat.with_tool(tool_instance)
+      # Resolve permissions for a default/plugin tool
+      #
+      # Looks up permissions in agent-specific config first, falls back to global defaults.
+      #
+      # @param tool_name [Symbol] Tool name
+      # @param agent_definition [Agent::Definition] Agent definition
+      # @return [Hash, nil] Permissions configuration or nil
+      def resolve_default_permissions(tool_name, agent_definition)
+        agent_definition.agent_permissions[tool_name] || agent_definition.default_permissions[tool_name]
       end
 
       # Create a tool instance via plugin
@@ -288,10 +269,6 @@ module SwarmSDK
           # Check if plugin has storage enabled for this agent
           next unless plugin.storage_enabled?(agent_definition)
 
-          # Get plugin storage for this agent
-          plugin_storages = @plugin_storages[plugin.name] || {}
-          plugin_storages[agent_name]
-
           # Register each tool provided by the plugin
           plugin.tools.each do |tool_name|
             # Skip if already registered explicitly
@@ -308,18 +285,9 @@ module SwarmSDK
               agent_definition: agent_definition,
             )
 
-            # Resolve permissions for plugin tool
-            permissions_config = agent_definition.agent_permissions[tool_name] ||
-              agent_definition.default_permissions[tool_name]
+            permissions_config = resolve_default_permissions(tool_name, agent_definition)
 
-            # Wrap with permissions validator if configured
-            tool_instance = wrap_tool_with_permissions(
-              tool_instance,
-              permissions_config,
-              agent_definition,
-            )
-
-            chat.with_tool(tool_instance)
+            wrap_and_add_tool(chat, tool_instance, permissions_config, agent_definition)
           end
         end
       end
@@ -379,75 +347,11 @@ module SwarmSDK
             delegate_chat: delegate_agent,
             agent_name: agent_name,
             swarm: @swarm,
-            hook_registry: @hook_registry,
             delegating_chat: chat,
           )
 
-          chat.with_tool(tool)
+          chat.add_tool(tool)
         end
-      end
-
-      # Pass 4: Configure hook system
-      #
-      # Setup the callback system for each agent.
-      def pass_4_configure_hooks
-        @agents.each do |agent_name, chat|
-          agent_definition = @agent_definitions[agent_name]
-
-          chat.setup_hooks(
-            registry: @hook_registry,
-            agent_definition: agent_definition,
-            swarm: @swarm,
-          ) if chat.respond_to?(:setup_hooks)
-        end
-      end
-
-      # Pass 5: Apply YAML hooks if present
-      #
-      # If loaded from YAML, apply agent-specific hooks.
-      def pass_5_apply_yaml_hooks
-        return unless @config_for_hooks
-
-        @agents.each do |agent_name, chat|
-          agent_def = @config_for_hooks.agents[agent_name]
-          next unless agent_def&.hooks
-
-          HooksAdapter.apply_agent_hooks(chat, agent_name, agent_def.hooks, @swarm.name)
-        end
-      end
-
-      # Create an AgentChat instance
-      #
-      # NOTE: This is dead code, left over from refactoring. AgentInitializer
-      # now handles agent creation. This should be removed in a cleanup pass.
-      #
-      # @param agent_name [Symbol] Agent name
-      # @param agent_definition [AgentDefinition] Agent definition
-      # @param tool_configurator [ToolConfigurator] Tool configurator
-      # @return [AgentChat] Configured chat instance
-      def create_agent_chat(agent_name, agent_definition, tool_configurator)
-        chat = AgentChat.new(
-          definition: agent_definition.to_h,
-          global_semaphore: @global_semaphore,
-        )
-
-        # Set agent name on provider for logging (if provider supports it)
-        chat.provider.agent_name = agent_name if chat.provider.respond_to?(:agent_name=)
-
-        # Register tools
-        tool_configurator.register_all_tools(
-          chat: chat,
-          agent_name: agent_name,
-          agent_definition: agent_definition,
-        )
-
-        # Register MCP servers if any
-        if agent_definition.mcp_servers.any?
-          mcp_configurator = McpConfigurator.new(@swarm)
-          mcp_configurator.register_mcp_servers(chat, agent_definition.mcp_servers, agent_name: agent_name)
-        end
-
-        chat
       end
     end
   end

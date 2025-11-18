@@ -76,14 +76,14 @@ module SwarmSDK
 
     def test_version_validation_with_wrong_version
       snapshot_data = create_valid_snapshot_hash
-      snapshot_data[:version] = "2.0.0"
+      snapshot_data[:version] = "1.0.0" # Old version is now wrong
       mock_swarm = create_mock_swarm(agents: [:alice])
 
       error = assert_raises(StateError) do
         StateRestorer.new(mock_swarm, snapshot_data)
       end
 
-      assert_match(/Unsupported snapshot version: 2.0.0/, error.message)
+      assert_match(/Unsupported snapshot version: 1.0.0/, error.message)
     end
 
     def test_version_validation_with_string_keys
@@ -98,28 +98,28 @@ module SwarmSDK
 
     # ========== Type Mismatch Tests ==========
 
-    def test_type_mismatch_snapshot_swarm_vs_node_orchestrator
+    def test_type_mismatch_snapshot_swarm_vs_workflow
       snapshot_data = create_valid_snapshot_hash
       snapshot_data[:type] = :swarm
-      mock_node_orchestrator = create_mock_node_orchestrator(agents: [:alice])
+      mock_workflow = create_mock_workflow(agents: [:alice])
 
       error = assert_raises(StateError) do
-        StateRestorer.new(mock_node_orchestrator, snapshot_data)
+        StateRestorer.new(mock_workflow, snapshot_data)
       end
 
-      assert_match(/Snapshot type 'swarm' doesn't match orchestration type 'node_orchestrator'/, error.message)
+      assert_match(/Snapshot type 'swarm' doesn't match orchestration type 'workflow'/, error.message)
     end
 
-    def test_type_mismatch_snapshot_node_orchestrator_vs_swarm
+    def test_type_mismatch_snapshot_workflow_vs_swarm
       snapshot_data = create_valid_snapshot_hash
-      snapshot_data[:type] = :node_orchestrator
+      snapshot_data[:type] = :workflow
       mock_swarm = create_mock_swarm(agents: [:alice])
 
       error = assert_raises(StateError) do
         StateRestorer.new(mock_swarm, snapshot_data)
       end
 
-      assert_match(/Snapshot type 'node_orchestrator' doesn't match orchestration type 'swarm'/, error.message)
+      assert_match(/Snapshot type 'workflow' doesn't match orchestration type 'swarm'/, error.message)
     end
 
     def test_type_matching_swarm_with_swarm
@@ -132,10 +132,10 @@ module SwarmSDK
       assert_kind_of(StateRestorer, restorer)
     end
 
-    def test_type_matching_node_orchestrator_with_node_orchestrator
+    def test_type_matching_workflow_with_workflow
       snapshot_data = create_valid_snapshot_hash
-      snapshot_data[:type] = :node_orchestrator
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice])
+      snapshot_data[:type] = :workflow
+      mock_node_orch = create_mock_workflow(agents: [:alice])
 
       restorer = StateRestorer.new(mock_node_orch, snapshot_data)
 
@@ -575,7 +575,7 @@ module SwarmSDK
       assert_equal(scratchpad_data, mock_scratchpad.restored_entries)
     end
 
-    def test_restore_scratchpad_node_orchestrator_enabled_mode
+    def test_restore_scratchpad_workflow_enabled_mode
       scratchpad_data = {
         shared: true,
         data: { "path1" => { "content" => "data", "title" => "Item" } },
@@ -584,8 +584,8 @@ module SwarmSDK
         agents: [:alice],
         scratchpad: scratchpad_data,
       )
-      snapshot_data[:type] = "node_orchestrator"
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice], scratchpad: :enabled)
+      snapshot_data[:type] = "workflow"
+      mock_node_orch = create_mock_workflow(agents: [:alice], scratchpad: :enabled)
       mock_scratchpad = MockScratchpadStorage.new
       mock_node_orch.setup_scratchpad_for(:planning, mock_scratchpad)
 
@@ -593,11 +593,11 @@ module SwarmSDK
       result = restorer.restore
 
       assert_kind_of(RestoreResult, result)
-      # Should restore scratchpad for NodeOrchestrator (enabled/shared across nodes)
+      # Should restore scratchpad for Workflow (enabled/shared across nodes)
       assert_equal(scratchpad_data[:data], mock_scratchpad.restored_entries)
     end
 
-    def test_restore_scratchpad_node_orchestrator_per_node_mode
+    def test_restore_scratchpad_workflow_per_node_mode
       scratchpad_data = {
         shared: false,
         data: {
@@ -609,8 +609,8 @@ module SwarmSDK
         agents: [:alice],
         scratchpad: scratchpad_data,
       )
-      snapshot_data[:type] = "node_orchestrator"
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice], scratchpad: :per_node)
+      snapshot_data[:type] = "workflow"
+      mock_node_orch = create_mock_workflow(agents: [:alice], scratchpad: :per_node)
 
       planning_scratchpad = MockScratchpadStorage.new
       impl_scratchpad = MockScratchpadStorage.new
@@ -706,47 +706,123 @@ module SwarmSDK
       assert_predicate(result, :success?)
     end
 
-    # ========== Memory Tracking Restore Tests ==========
+    # ========== Version 2.1.0 Plugin State Tests ==========
 
-    def test_restore_memory_tracking_single_agent
-      memory_tracking_data = {
-        alice: {
-          "/entry1" => "digest1",
-          "/entry2" => "digest2",
+    def test_version_210_accepted
+      snapshot_data = create_valid_snapshot_hash(agents: [:alice], version: "2.1.0")
+      mock_swarm = create_mock_swarm(agents: [:alice])
+
+      restorer = StateRestorer.new(mock_swarm, snapshot_data)
+
+      assert_kind_of(StateRestorer, restorer)
+    end
+
+    def test_version_200_rejected
+      snapshot_data = create_valid_snapshot_hash(agents: [:alice], version: "2.0.0")
+      mock_swarm = create_mock_swarm(agents: [:alice])
+
+      error = assert_raises(StateError) do
+        StateRestorer.new(mock_swarm, snapshot_data)
+      end
+
+      assert_match(/Unsupported snapshot version: 2.0.0/, error.message)
+    end
+
+    def test_restore_plugin_states_single_plugin_single_agent
+      plugin_states_data = {
+        "memory" => {
+          "alice" => {
+            read_entries: { "/entry1" => "digest1" },
+          },
         },
       }
       snapshot_data = create_valid_snapshot_hash(
         agents: [:alice],
-        memory_tracking: memory_tracking_data,
+        plugin_states: plugin_states_data,
       )
       mock_swarm = create_mock_swarm(agents: [:alice])
 
+      # Register a test plugin
+      test_plugin = TestStatePlugin.new(:memory)
+      PluginRegistry.clear
+      PluginRegistry.register(test_plugin)
+
       restorer = StateRestorer.new(mock_swarm, snapshot_data)
       result = restorer.restore
 
       assert_kind_of(RestoreResult, result)
+      # Verify plugin received the state
+      assert_includes(test_plugin.restored_agents, :alice)
+      restored_state = test_plugin.restored_states[:alice]
+
+      assert_equal({ read_entries: { "/entry1" => "digest1" } }, restored_state)
+
+      PluginRegistry.clear
     end
 
-    def test_restore_memory_tracking_multiple_agents
-      memory_tracking_data = {
-        alice: { "/entry_a" => "digest_a" },
-        bob: { "/entry_b" => "digest_b" },
+    def test_restore_plugin_states_multiple_plugins_multiple_agents
+      plugin_states_data = {
+        "memory" => {
+          "alice" => { read_entries: { "/a_entry" => "a_digest" } },
+          "bob" => { read_entries: { "/b_entry" => "b_digest" } },
+        },
+        "custom" => {
+          "alice" => { custom_data: "alice_custom" },
+        },
       }
       snapshot_data = create_valid_snapshot_hash(
         agents: [:alice, :bob],
-        memory_tracking: memory_tracking_data,
+        plugin_states: plugin_states_data,
       )
       mock_swarm = create_mock_swarm(agents: [:alice, :bob])
+
+      # Register test plugins
+      memory_plugin = TestStatePlugin.new(:memory)
+      custom_plugin = TestStatePlugin.new(:custom)
+      PluginRegistry.clear
+      PluginRegistry.register(memory_plugin)
+      PluginRegistry.register(custom_plugin)
 
       restorer = StateRestorer.new(mock_swarm, snapshot_data)
       result = restorer.restore
 
       assert_kind_of(RestoreResult, result)
+      # Verify memory plugin received both agents
+      assert_includes(memory_plugin.restored_agents, :alice)
+      assert_includes(memory_plugin.restored_agents, :bob)
+      # Verify custom plugin received only alice
+      assert_includes(custom_plugin.restored_agents, :alice)
+      refute_includes(custom_plugin.restored_agents, :bob)
+
+      PluginRegistry.clear
     end
 
-    def test_restore_memory_tracking_missing
-      snapshot_data = create_valid_snapshot_hash(agents: [:alice])
-      snapshot_data.delete(:memory_read_tracking)
+    def test_restore_plugin_states_missing_plugin_gracefully_skipped
+      plugin_states_data = {
+        "nonexistent_plugin" => {
+          "alice" => { some_data: "value" },
+        },
+      }
+      snapshot_data = create_valid_snapshot_hash(
+        agents: [:alice],
+        plugin_states: plugin_states_data,
+      )
+      mock_swarm = create_mock_swarm(agents: [:alice])
+
+      PluginRegistry.clear
+
+      restorer = StateRestorer.new(mock_swarm, snapshot_data)
+      result = restorer.restore
+
+      # Should succeed even with missing plugin
+      assert_predicate(result, :success?)
+    end
+
+    def test_restore_empty_plugin_states
+      snapshot_data = create_valid_snapshot_hash(
+        agents: [:alice],
+        plugin_states: {},
+      )
       mock_swarm = create_mock_swarm(agents: [:alice])
 
       restorer = StateRestorer.new(mock_swarm, snapshot_data)
@@ -755,18 +831,34 @@ module SwarmSDK
       assert_predicate(result, :success?)
     end
 
-    def test_restore_memory_tracking_not_defined
-      memory_tracking_data = { alice: { "/entry" => "digest" } }
+    def test_restore_with_string_keys_in_plugin_states
+      plugin_states_data = {
+        "memory" => {
+          "alice" => {
+            "read_entries" => { "/entry1" => "digest1" },
+          },
+        },
+      }
       snapshot_data = create_valid_snapshot_hash(
         agents: [:alice],
-        memory_tracking: memory_tracking_data,
+        plugin_states: plugin_states_data,
       )
       mock_swarm = create_mock_swarm(agents: [:alice])
+
+      test_plugin = TestStatePlugin.new(:memory)
+      PluginRegistry.clear
+      PluginRegistry.register(test_plugin)
 
       restorer = StateRestorer.new(mock_swarm, snapshot_data)
       result = restorer.restore
 
       assert_kind_of(RestoreResult, result)
+      # Should symbolize keys
+      restored_state = test_plugin.restored_states[:alice]
+
+      assert_equal({ read_entries: { "/entry1" => "digest1" } }, restored_state)
+
+      PluginRegistry.clear
     end
 
     # ========== Delegation Conversation Restore Tests ==========
@@ -800,7 +892,7 @@ module SwarmSDK
       assert_equal(2, mock_delegation.messages.size) # system + 1 user
     end
 
-    def test_restore_delegation_conversation_node_orchestrator_not_cached
+    def test_restore_delegation_conversation_workflow_not_cached
       delegation_data = {
         "alice@bob" => {
           conversation: [
@@ -819,10 +911,10 @@ module SwarmSDK
         agents: [:alice, :bob],
         delegations: delegation_data,
       )
-      snapshot_data[:type] = :node_orchestrator
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice, :bob])
+      snapshot_data[:type] = :workflow
+      mock_node_orch = create_mock_workflow(agents: [:alice, :bob])
       # Empty cache (not yet initialized)
-      mock_node_orch.agent_instance_cache[:delegations] = {}
+      mock_node_orch.delegation_instances.clear
 
       restorer = StateRestorer.new(mock_node_orch, snapshot_data)
       result = restorer.restore
@@ -938,12 +1030,12 @@ module SwarmSDK
       assert_predicate(result, :success?)
     end
 
-    def test_restore_agent_not_in_cache_for_node_orchestrator
+    def test_restore_agent_not_in_cache_for_workflow
       snapshot_data = create_valid_snapshot_hash(agents: [:alice])
-      snapshot_data[:type] = :node_orchestrator
-      mock_node_orch = create_mock_node_orchestrator(agents: [:alice])
+      snapshot_data[:type] = :workflow
+      mock_node_orch = create_mock_workflow(agents: [:alice])
       # Agent not yet in cache
-      mock_node_orch.agent_instance_cache[:primary] = {}
+      mock_node_orch.agents.clear
 
       restorer = StateRestorer.new(mock_node_orch, snapshot_data)
       result = restorer.restore
@@ -974,7 +1066,8 @@ module SwarmSDK
       system_prompt_override: nil,
       scratchpad: nil,
       read_tracking: nil,
-      memory_tracking: nil,
+      plugin_states: nil,
+      version: "2.1.0",
       swarm_metadata: {}
     )
       agent_conversations ||= agents.each_with_object({}) do |agent, hash|
@@ -1008,18 +1101,18 @@ module SwarmSDK
       end
 
       snapshot = {
-        version: "1.0.0",
+        version: version,
         type: :swarm,
         snapshot_at: Time.now.iso8601,
         swarm_sdk_version: SwarmSDK::VERSION,
+        metadata: swarm_metadata.merge(first_message_sent: false),
         agents: agents_data,
         delegation_instances: delegations_data,
-        swarm: swarm_metadata.merge(first_message_sent: false),
       }
 
       snapshot[:scratchpad] = scratchpad if scratchpad
       snapshot[:read_tracking] = read_tracking if read_tracking
-      snapshot[:memory_read_tracking] = memory_tracking if memory_tracking
+      snapshot[:plugin_states] = plugin_states if plugin_states
 
       snapshot
     end
@@ -1041,8 +1134,8 @@ module SwarmSDK
       MockSwarm.new(agents: agents, system_prompt: system_prompt)
     end
 
-    def create_mock_node_orchestrator(agents: [], scratchpad: :enabled)
-      MockNodeOrchestrator.new(agents: agents, scratchpad: scratchpad)
+    def create_mock_workflow(agents: [], scratchpad: :enabled)
+      MockWorkflow.new(agents: agents, scratchpad: scratchpad)
     end
 
     # Mock Classes for testing
@@ -1055,31 +1148,38 @@ module SwarmSDK
       end
     end
 
-    class MockNodeOrchestrator
-      attr_reader :agent_instance_cache, :scratchpad, :start_node
+    class MockWorkflow
+      attr_reader :agents, :delegation_instances, :scratchpad, :start_node, :swarm_id, :parent_swarm_id
 
-      # Identify as NodeOrchestrator for type detection
+      # Identify as Workflow for type detection
       def is_a?(klass)
-        return true if klass == SwarmSDK::NodeOrchestrator
+        return true if klass == SwarmSDK::Workflow
 
         super
       end
 
       def kind_of?(klass)
-        return true if klass == SwarmSDK::NodeOrchestrator
+        return true if klass == SwarmSDK::Workflow
 
         super
       end
 
+      # Override class name for type detection
+      class << self
+        def name
+          "SwarmSDK::Workflow"
+        end
+      end
+
       def initialize(agents: [], scratchpad: :enabled)
         @agent_defs = {}
-        @agent_instance_cache = {
-          primary: {},
-          delegations: {},
-        }
+        @agents = {}                    # Updated to match Workflow
+        @delegation_instances = {}      # Updated to match Workflow
         @scratchpad = scratchpad
         @start_node = :planning # Default for tests
         @scratchpads = {} # { node_name => scratchpad }
+        @swarm_id = nil
+        @parent_swarm_id = nil
 
         agents.each do |agent_name|
           @agent_defs[agent_name] = MockAgentDef.new("Test prompt")
@@ -1088,6 +1188,23 @@ module SwarmSDK
 
       def agent_definitions
         @agent_defs
+      end
+
+      # Implement Snapshotable interface
+      def primary_agents
+        @agents
+      end
+
+      def delegation_instances_hash
+        @delegation_instances
+      end
+
+      def first_message_sent?
+        false
+      end
+
+      def name
+        "MockWorkflow"
       end
 
       def shared_scratchpad?
@@ -1127,12 +1244,21 @@ module SwarmSDK
     end
 
     class MockSwarm
-      attr_reader :agents
+      attr_reader :agents, :swarm_id, :parent_swarm_id
       attr_accessor :first_message_sent, :delegation_instances, :scratchpad_storage
+
+      # Override class name for type detection
+      class << self
+        def name
+          "SwarmSDK::Swarm"
+        end
+      end
 
       def initialize(agents: [], system_prompt: nil)
         @agent_defs = {}
         @agents = {}
+        @swarm_id = nil
+        @parent_swarm_id = nil
 
         agents.each do |agent_name|
           chat = MockAgentChat.new
@@ -1143,6 +1269,19 @@ module SwarmSDK
         @first_message_sent = nil
         @delegation_instances = {}
         @scratchpad_storage = nil
+      end
+
+      # Implement Snapshotable interface
+      def primary_agents
+        @agents
+      end
+
+      def delegation_instances_hash
+        @delegation_instances
+      end
+
+      def name
+        "MockSwarm"
       end
 
       def agent(name)
@@ -1161,7 +1300,13 @@ module SwarmSDK
         @messages = []
       end
 
-      def with_instructions(prompt)
+      def replace_messages(new_messages)
+        @messages.clear
+        new_messages.each { |msg| @messages << msg }
+        self
+      end
+
+      def configure_system_prompt(prompt)
         @messages << RubyLLM::Message.new(role: :system, content: prompt) if prompt
       end
 
@@ -1205,7 +1350,13 @@ module SwarmSDK
         @messages = []
       end
 
-      def with_instructions(prompt)
+      def replace_messages(new_messages)
+        @messages.clear
+        new_messages.each { |msg| @messages << msg }
+        self
+      end
+
+      def configure_system_prompt(prompt)
         @messages << RubyLLM::Message.new(role: :system, content: prompt) if prompt
       end
 
@@ -1259,6 +1410,43 @@ module SwarmSDK
 
       def restore_read_entries(agent, entries)
         @restore_called = true
+      end
+    end
+
+    # Test plugin for plugin state snapshot/restore testing
+    class TestStatePlugin < Plugin
+      attr_reader :restored_agents, :restored_states, :snapshoted_agents
+
+      def initialize(plugin_name)
+        super()
+        @plugin_name = plugin_name
+        @restored_agents = []
+        @restored_states = {}
+        @snapshoted_agents = []
+        @agent_states = {} # { agent_name => state }
+      end
+
+      def name
+        @plugin_name
+      end
+
+      def tools
+        []
+      end
+
+      # Set state for an agent (for testing snapshot)
+      def set_agent_state(agent_name, state)
+        @agent_states[agent_name] = state
+      end
+
+      def snapshot_agent_state(agent_name)
+        @snapshoted_agents << agent_name
+        @agent_states[agent_name] || {}
+      end
+
+      def restore_agent_state(agent_name, state)
+        @restored_agents << agent_name
+        @restored_states[agent_name] = state
       end
     end
   end

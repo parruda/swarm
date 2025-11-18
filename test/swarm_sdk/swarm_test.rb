@@ -228,8 +228,8 @@ module SwarmSDK
     end
 
     def test_default_constants
-      assert_equal(50, Swarm::DEFAULT_GLOBAL_CONCURRENCY)
-      assert_equal(10, Swarm::DEFAULT_LOCAL_CONCURRENCY)
+      assert_equal(50, Defaults::Concurrency::GLOBAL_LIMIT)
+      assert_equal(10, Defaults::Concurrency::LOCAL_LIMIT)
     end
 
     def test_chaining_add_agent_and_set_lead
@@ -455,7 +455,7 @@ module SwarmSDK
       lead_agent = swarm.agent(:lead)
 
       # Verify backend tool was registered
-      assert(lead_agent.tools.key?(:DelegateTaskToBackend), "Expected backend tool to be registered")
+      assert(lead_agent.has_tool?(:WorkWithBackend), "Expected backend tool to be registered")
     end
 
     def test_register_agent_tools_with_unknown_agent_raises_error
@@ -839,7 +839,7 @@ module SwarmSDK
       agent = swarm.agent(:restricted)
 
       # Agent should have Write tool with permissions
-      assert(agent.tools.key?(:Write))
+      assert(agent.has_tool?(:Write))
     end
 
     def test_load_from_yaml_class_method
@@ -870,8 +870,8 @@ module SwarmSDK
       agent = swarm.agent(:test)
 
       # Should convert strings to symbols
-      assert(agent.tools.key?(:Read))
-      assert(agent.tools.key?(:Write))
+      assert(agent.has_tool?(:Read))
+      assert(agent.has_tool?(:Write))
     end
 
     def test_agent_with_mixed_tool_formats
@@ -892,9 +892,9 @@ module SwarmSDK
 
       agent = swarm.agent(:test)
 
-      assert(agent.tools.key?(:Read))
-      assert(agent.tools.key?(:Write))
-      assert(agent.tools.key?(:Edit))
+      assert(agent.has_tool?(:Read))
+      assert(agent.has_tool?(:Write))
+      assert(agent.has_tool?(:Edit))
     end
 
     # Tests for scratchpad mode validation
@@ -953,7 +953,7 @@ module SwarmSDK
         end
       end
 
-      assert_match(/:per_node is only valid for NodeOrchestrator/, error.message)
+      assert_match(/:per_node is only valid for Workflow/, error.message)
       assert_match(/use :enabled or :disabled/, error.message)
     end
 

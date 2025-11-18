@@ -11,6 +11,13 @@ module SwarmSDK
     class MultiEdit < RubyLLM::Tool
       include PathResolver
 
+      # Factory pattern: declare what parameters this tool needs for instantiation
+      class << self
+        def creation_requirements
+          [:agent_name, :directory]
+        end
+      end
+
       description <<~DESC
         Performs multiple exact string replacements in a single file.
         Edits are applied sequentially, so later edits see the results of earlier ones.
@@ -53,8 +60,7 @@ module SwarmSDK
       # @param directory [String] Agent's working directory
       def initialize(agent_name:, directory:)
         super()
-        @agent_name = agent_name.to_sym
-        @directory = File.expand_path(directory)
+        initialize_agent_context(agent_name: agent_name, directory: directory)
       end
 
       # Override name to return simple "MultiEdit" instead of full class path
@@ -204,15 +210,13 @@ module SwarmSDK
 
       private
 
-      # Helper methods
-      def validation_error(message)
-        "<tool_use_error>InputValidationError: #{message}</tool_use_error>"
-      end
-
-      def error(message)
-        "Error: #{message}"
-      end
-
+      # Format an error that includes partial results
+      #
+      # Shows what edits succeeded before the error occurred.
+      #
+      # @param message [String] Error description
+      # @param results [Array<Hash>] Successful edit results before failure
+      # @return [String] Formatted error message with results summary
       def error_with_results(message, results)
         output = "<tool_use_error>InputValidationError: #{message}\n\n"
 

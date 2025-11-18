@@ -10,7 +10,7 @@ module SwarmSDK
   # ## Adding Custom Attributes to Agents
   #
   # Plugins can add custom attributes to Agent::Definition that are preserved
-  # when agents are cloned (e.g., in NodeOrchestrator). To do this:
+  # when agents are cloned (e.g., in Workflow). To do this:
   #
   # 1. Add attr_reader to Agent::Definition for your attribute
   # 2. Parse the attribute in Agent::Definition#initialize
@@ -62,7 +62,7 @@ module SwarmSDK
   #     my_custom_config { option: "value" }
   #   end
   #
-  # And it will be preserved when NodeOrchestrator clones the agent!
+  # And it will be preserved when Workflow clones the agent!
   #
   # @example Real-world: SwarmMemory plugin
   #   # SwarmMemory adds 'memory' attribute to agents
@@ -197,7 +197,7 @@ module SwarmSDK
     # Contribute to agent serialization (optional)
     #
     # Called when Agent::Definition.to_h is invoked (e.g., for cloning agents
-    # in NodeOrchestrator). Plugins can return config keys that should be
+    # in Workflow). Plugins can return config keys that should be
     # included in the serialized hash to preserve their state.
     #
     # This allows plugins to maintain their configuration when agents are
@@ -214,6 +214,96 @@ module SwarmSDK
     #   end
     def serialize_config(agent_definition:)
       {}
+    end
+
+    # Snapshot plugin-specific state for an agent
+    #
+    # Called during state snapshot creation (e.g., session persistence).
+    # Return any state your plugin needs to persist for this agent.
+    # The returned hash will be JSON serialized.
+    #
+    # @param agent_name [Symbol] Agent identifier
+    # @return [Hash] Plugin-specific state (empty hash if nothing to snapshot)
+    #
+    # @example Memory read tracking
+    #   def snapshot_agent_state(agent_name)
+    #     entries = StorageReadTracker.get_read_entries(agent_name)
+    #     return {} if entries.empty?
+    #
+    #     { read_entries: entries }
+    #   end
+    def snapshot_agent_state(agent_name)
+      {}
+    end
+
+    # Restore plugin-specific state for an agent
+    #
+    # Called during state restoration. Restore any persisted state.
+    # This method is idempotent - calling it multiple times with
+    # the same state should produce the same result.
+    #
+    # @param agent_name [Symbol] Agent identifier
+    # @param state [Hash] Previously snapshotted state (with symbol keys)
+    # @return [void]
+    #
+    # @example Memory read tracking
+    #   def restore_agent_state(agent_name, state)
+    #     entries = state[:read_entries] || state["read_entries"]
+    #     return unless entries
+    #
+    #     StorageReadTracker.restore_read_entries(agent_name, entries)
+    #   end
+    def restore_agent_state(agent_name, state)
+      # Override if needed
+    end
+
+    # Get digest for a tool result (e.g., file hash, memory entry hash)
+    #
+    # Called during tool result metadata collection. Returns a digest
+    # that can be used to detect if the resource has changed since
+    # it was last read. This enables change detection hooks.
+    #
+    # @param agent_name [Symbol] Agent identifier
+    # @param tool_name [String] Name of the tool (e.g., "MemoryRead")
+    # @param path [String] Path or identifier of the resource
+    # @return [String, nil] Digest string or nil if not tracked by this plugin
+    #
+    # @example Memory read tracking
+    #   def get_tool_result_digest(agent_name:, tool_name:, path:)
+    #     return unless tool_name == "MemoryRead"
+    #
+    #     StorageReadTracker.get_read_entries(agent_name)[path]
+    #   end
+    def get_tool_result_digest(agent_name:, tool_name:, path:)
+      nil
+    end
+
+    # Translate YAML configuration into DSL calls
+    #
+    # Called during YAML-to-DSL translation. Plugins can translate their
+    # specific YAML configuration keys into DSL method calls on the builder.
+    # This allows SDK to remain plugin-agnostic while plugins can add
+    # YAML configuration support.
+    #
+    # @param builder [Agent::Builder] Builder instance (self in DSL context)
+    # @param agent_config [Hash] Full agent config from YAML
+    # @return [void]
+    #
+    # @example Memory plugin YAML translation
+    #   def translate_yaml_config(builder, agent_config)
+    #     memory_config = agent_config[:memory]
+    #     return unless memory_config
+    #
+    #     builder.instance_eval do
+    #       memory do
+    #         directory(memory_config[:directory])
+    #         adapter(memory_config[:adapter]) if memory_config[:adapter]
+    #         mode(memory_config[:mode]) if memory_config[:mode]
+    #       end
+    #     end
+    #   end
+    def translate_yaml_config(builder, agent_config)
+      # Override if plugin needs YAML configuration support
     end
   end
 end

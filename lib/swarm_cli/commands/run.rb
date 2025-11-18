@@ -134,8 +134,8 @@ module SwarmCLI
 
       def emit_validation_warnings(swarm, formatter)
         # Setup temporary logging to capture and emit warnings
-        SwarmSDK::LogCollector.on_log do |log_entry|
-          formatter.on_log(log_entry) if log_entry[:type] == "model_lookup_warning"
+        SwarmSDK::LogCollector.subscribe(filter: { type: "model_lookup_warning" }) do |log_entry|
+          formatter.on_log(log_entry)
         end
 
         SwarmSDK::LogStream.emitter = SwarmSDK::LogCollector

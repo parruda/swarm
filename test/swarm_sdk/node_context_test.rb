@@ -12,7 +12,7 @@ module SwarmSDK
     def test_input_transformer_receives_node_context
       received_context = nil
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Context Test")
 
         agent(:agent1) do
@@ -50,7 +50,7 @@ module SwarmSDK
     def test_output_transformer_receives_node_context
       received_context = nil
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Output Context Test")
 
         agent(:agent1) do
@@ -86,7 +86,7 @@ module SwarmSDK
       original_prompt_in_node2 = nil
       original_prompt_in_node3 = nil
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Original Prompt Test")
 
         node(:node1) do
@@ -135,7 +135,7 @@ module SwarmSDK
       node1_content_in_node3 = nil
       node2_content_in_node3 = nil
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("All Results Test")
 
         node(:node1) do
@@ -186,7 +186,7 @@ module SwarmSDK
       node_name_in_node1 = nil
       node_name_in_node2 = nil
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Node Name Test")
 
         node(:planning) do
@@ -218,7 +218,7 @@ module SwarmSDK
     def test_node_context_dependencies_list
       dependencies_in_node = nil
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Dependencies Test")
 
         node(:node1) do
@@ -252,7 +252,7 @@ module SwarmSDK
       content_in_input = nil
       content_in_output = nil
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Content Accessor Test")
 
         node(:node1) do
@@ -288,7 +288,7 @@ module SwarmSDK
     def test_node_context_multiple_dependencies_hash
       previous_result_type = nil
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Multi-dep Test")
 
         node(:node1) do
@@ -322,7 +322,7 @@ module SwarmSDK
     def test_node_context_result_metadata_accessible
       result_metadata = {}
 
-      swarm = SwarmSDK.build do
+      swarm = SwarmSDK.workflow do
         name("Metadata Test")
 
         node(:node1) do

@@ -5,9 +5,162 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0]
+
+### Breaking Changes
+
+- **Agent::Chat Abstraction Layer**: Refactored Agent::Chat from inheritance to composition with RubyLLM::Chat
+  - **Removed direct access**: SDK consumers can no longer access `.tools`, `.messages`, or `.model` directly
+  - **New abstraction methods**: SwarmSDK-specific API that hides RubyLLM internals
+    - `has_tool?(name)` - Check if tool exists by name (symbol or string)
+    - `tool_names` - Get array of tool names (symbols)
+    - `model_id` - Get model identifier string
+    - `model_provider` - Get model provider string
+    - `message_count` - Get number of messages in conversation
+    - `has_user_message?` - Check if conversation has any user messages
+    - `last_assistant_message` - Get most recent assistant message
+    - `take_snapshot` - Serialize conversation for persistence
+    - `restore_snapshot(data)` - Restore conversation from serialized data
+  - **Internal access methods**: For helper modules that need direct access
+    - `internal_messages` - Direct array of RubyLLM messages (for internal use only)
+    - `internal_tools` - Direct hash of tool instances (for internal use only)
+    - `internal_model` - Direct RubyLLM model object (for internal use only)
+  - **Migration**:
+    - `chat.tools.key?(:Read)` → `chat.has_tool?(:Read)`
+    - `chat.tools.keys` → `chat.tool_names`
+    - `chat.model.id` → `chat.model_id`
+    - `chat.model.provider` → `chat.model_provider`
+    - `chat.messages.count` → `chat.message_count`
+    - `chat.messages` (for internal modules) → `chat.internal_messages`
+  - **Improved encapsulation**: Prevents tight coupling to RubyLLM internals, making future LLM library changes easier
+  - **Files affected**:
+    - `lib/swarm_sdk/agent/chat.rb` - Core abstraction implementation
+    - `lib/swarm_sdk/swarm.rb` - Uses `tool_names` instead of `tools.keys`
+    - `lib/swarm_sdk/state_snapshot.rb` - Uses `internal_messages`
+    - `lib/swarm_sdk/state_restorer.rb` - Uses `internal_messages`
+    - `lib/swarm_sdk/context_compactor.rb` - Uses `internal_messages`
+    - `lib/swarm_sdk/agent/chat/hook_integration.rb` - Uses abstraction methods
+    - `lib/swarm_sdk/agent/chat/system_reminder_injector.rb` - Uses abstraction methods
+    - `lib/swarm_sdk/agent/chat/context_tracker.rb` - Uses `model_id`
+
+- **MAJOR REFACTORING**: Separated Swarm and Workflow into distinct, clear APIs
+  - `SwarmSDK.build` now ONLY returns `Swarm` (simple multi-agent collaboration)
+  - New `SwarmSDK.workflow` API for multi-stage workflows (returns `Workflow`)
+  - `NodeOrchestrator` class renamed to `Workflow` (clearer naming)
+  - Attempting to use nodes in `SwarmSDK.build` now raises `ConfigurationError`
+  - Snapshot version bumped to 2.0.0 (old snapshots incompatible)
+  - Snapshot structure changed: `swarm:` key renamed to `metadata:`
+
+- **YAML Configuration**: Explicit type keys for Swarm vs Workflow
+  - `swarm:` key now ONLY for Swarm configurations (requires `lead:`, cannot have `nodes:`)
+  - New `workflow:` key for Workflow configurations (requires `start_node:` and `nodes:`)
+  - Cannot have both `swarm:` and `workflow:` keys in same file
+  - Same `SwarmSDK.load_file` API works for both types (auto-detects from root key)
 
 ### Added
+
+- New `SwarmSDK.workflow` DSL for building multi-stage workflows
+- **YAML `workflow:` key support**: Explicit root key for workflow configurations
+  - Clearer separation between Swarm and Workflow in YAML files
+  - Configuration class with proper separation of concerns (type detection, validation, loading)
+  - Validates type-specific requirements (e.g., `swarm:` cannot have `nodes:`)
+- Three new concern modules for shared functionality:
+  - `Concerns::Snapshotable` - Common snapshot/restore interface
+  - `Concerns::Validatable` - Common validation interface
+  - `Concerns::Cleanupable` - Common cleanup interface
+- `Builders::BaseBuilder` - Shared DSL logic for both Swarm and Workflow builders
+- Both `Swarm` and `Workflow` now implement common interface methods:
+  - `primary_agents` - Access to primary agent instances
+  - `delegation_instances_hash` - Access to delegation instances
+
+### Changed
+
+- `Workflow` (formerly `NodeOrchestrator`) internal structure simplified to match `Swarm`:
+  - Replaced `@agent_instance_cache = { primary: {}, delegations: {} }`
+  - With `@agents = {}` and `@delegation_instances = {}`
+- `Swarm::Builder` dramatically simplified: 784 lines → 208 lines (73% reduction)
+- `StateSnapshot` and `StateRestorer` no longer use type checking - rely on interface methods
+- `SnapshotFromEvents` updated to generate v2.0.0 snapshots with new structure
+- Module namespace: `Node::` renamed to `Workflow::`
+  - `Node::Builder` → `Workflow::NodeBuilder`
+  - `Node::AgentConfig` → `Workflow::AgentConfig`
+  - `Node::TransformerExecutor` → `Workflow::TransformerExecutor`
+
+### Removed
+
+- Dual-return-type pattern from `SwarmSDK.build` (no longer returns `NodeOrchestrator`)
+- ~600 lines of duplicated code across Swarm and NodeOrchestrator
+- Complex type-checking logic in StateSnapshot and StateRestorer
+
+### Migration Guide
+
+**For vanilla swarm users (no nodes):** No changes needed! Your code works as-is.
+
+**For workflow users (using Ruby DSL):** Change `SwarmSDK.build` to `SwarmSDK.workflow`:
+
+```ruby
+# Before
+SwarmSDK.build do
+  node :planning { ... }
+end
+
+# After
+SwarmSDK.workflow do
+  node :planning { ... }
+end
+```
+
+**For YAML workflow users:** Change `swarm:` key to `workflow:`:
+
+```yaml
+# Before
+version: 2
+swarm:
+  name: "Pipeline"
+  start_node: planning
+  agents: { ... }
+  nodes: { ... }
+
+# After
+version: 2
+workflow:
+  name: "Pipeline"
+  start_node: planning
+  agents: { ... }
+  nodes: { ... }
+```
+
+**For event-sourcing users:** No changes needed! `SnapshotFromEvents.reconstruct(events)` automatically generates v2.0.0 snapshots.
+
+**For snapshot storage users:** Old snapshots (v1.0.0) won't restore. Create new snapshots or convert:
+```ruby
+old[:version] = "2.0.0"
+old[:metadata] = old.delete(:swarm)
+```
+
+### Added
+
+- **Non-Blocking Execution with Cancellation Support**: Optional `wait` parameter enables task cancellation
+  - **`wait: true` (default)**: Maintains backward-compatible blocking behavior, returns `Result`
+  - **`wait: false`**: Returns `Async::Task` immediately for non-blocking execution
+  - **`task.stop`**: Cancels execution at next fiber yield point (HTTP I/O, tool boundaries)
+  - **Cooperative cancellation**: Stops when fiber yields, not immediate for synchronous operations
+  - **Proper cleanup**: MCP clients, fiber storage, and logging cleaned in task's ensure block
+  - **Cleanup on cancellation**: Ensure blocks execute when task stopped via `Async::Stop` exception
+  - **`task.wait` returns nil**: Cancelled tasks return `nil` from `wait` method
+  - **Execution flow**: Reprompting loop and all cleanup moved inside Async block
+  - **Parent cleanup**: Fiber storage cleaned after `task.wait` when `wait: true`
+  - **Examples**:
+    - Blocking: `result = swarm.execute("Build auth")` (current behavior)
+    - Non-blocking: `task = swarm.execute("Build auth", wait: false)` then `task.stop`
+  - **Files**: `lib/swarm_sdk/swarm.rb` (major refactor of execute method)
+  - **Tests**: 9 comprehensive tests in `test/swarm_sdk/execute_wait_parameter_test.rb`
+
+- **Delegation Result Event Reconstruction**: Snapshot/restore now handles delegation events properly
+  - **`delegation_result` event support**: EventsToMessages reconstructs tool result messages from delegations
+  - **Proper conversation restoration**: Delegations correctly reconstructed from event logs
+  - **Snapshot compatibility**: Enables complete state restoration including delegation history
+  - **Files**: `lib/swarm_sdk/events_to_messages.rb`
 
 - **User Prompt Source Tracking**: `user_prompt` events now include source information to distinguish user interactions from delegations
   - **`source` field**: Indicates origin of prompt - `"user"` (direct user interaction) or `"delegation"` (from delegation tool)
@@ -36,7 +189,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Example**: `agent(:planner).tools(:Think, :Read)` in planning node, `agent(:planner).tools(:Write, :Edit, :Bash)` in implementation node
   - **Implementation**: New `tools(*tool_names)` method on `AgentConfig`, stored in node configuration as tool override
   - **Backward compatible**: Omit `.tools()` to use agent's global tool configuration
-  - **Files**: `lib/swarm_sdk/node/agent_config.rb`, `lib/swarm_sdk/node/builder.rb`, `lib/swarm_sdk/node_orchestrator.rb`
+  - **Files**: `lib/swarm_sdk/workflow/agent_config.rb`, `lib/swarm_sdk/workflow/node_builder.rb`, `lib/swarm_sdk/workflow.rb`
+
+### Changed
+
+- **BREAKING: Delegation Tool Rebranding**: Delegation tools renamed to emphasize collaboration over task delegation
+  - **Tool naming**: `DelegateTaskToBackend` → `WorkWithBackend`
+  - **Tool parameter**: `task:` → `message:` (more flexible, supports questions and collaboration)
+  - **Tool description**: Now emphasizes working with agents, not just delegating tasks
+  - **Configurable prefix**: Added `TOOL_NAME_PREFIX` constant for easy customization
+  - **Migration**: Update code/tests using `DelegateTaskTo*` to use `WorkWith*`
+  - **Parameter migration**: Change `task:` parameter to `message:` in delegation tool calls
+  - **Rationale**: Better reflects collaborative agent relationships and flexible communication patterns
+  - **Files affected**: `lib/swarm_sdk/tools/delegate.rb`, `lib/swarm_sdk/agent/chat/context_tracker.rb`, `lib/swarm_sdk/swarm/agent_initializer.rb`, `lib/swarm_cli/interactive_repl.rb`
+  - **Tests updated**: All delegation tests updated to use new naming (18 files)
+
+### Fixed
+
+- **MCP Configuration for Non-OAuth Servers**: Fixed errors when configuring MCP servers without OAuth
+  - **Issue**: OAuth field was included in streamable config even when not configured, causing errors
+  - **Fix**: Removed `oauth` field from streamable config hash
+  - **Additional fix**: Only include `rate_limit` if explicitly configured (avoid nil values)
+  - **Impact**: MCP servers without OAuth now configure correctly without errors
+  - **Files**: `lib/swarm_sdk/swarm/mcp_configurator.rb`
 
 ## [2.2.0] - 2025-11-06
 
@@ -158,7 +333,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Enables calculating total cost/tokens for a single execution
     - Allows building complete execution traces across all agents and tools
   - **`swarm_id`**: Identifies which swarm/node emitted the event
-    - Hierarchical format for NodeOrchestrator nodes (e.g., `workflow/node:planning`)
+    - Hierarchical format for Workflow nodes (e.g., `workflow/node:planning`)
     - Tracks execution flow through nested swarms and workflow stages
   - **`parent_swarm_id`**: Identifies the parent swarm for nested execution contexts
   - **Fiber-local storage implementation**: Uses Ruby 3.2+ Fiber storage for automatic propagation
@@ -203,7 +378,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Tool state isolation**: TodoWrite, ReadTracker, and other stateful tools isolated per instance
   - **Nested delegation support**: Works correctly with multi-level delegation chains
   - **Fiber-safe concurrency**: Added `Async::Semaphore` to `Chat.ask()` to prevent message corruption when multiple delegation instances call shared agents in parallel
-  - **Atomic caching**: NodeOrchestrator caches delegation instances together with primary agents for context preservation
+  - **Atomic caching**: Workflow caches delegation instances together with primary agents for context preservation
   - **Agent name validation**: Agent names cannot contain '@' character (reserved for delegation instances)
   - **Automatic deduplication**: Duplicate entries in `delegates_to` are automatically removed
   - **Comprehensive test coverage**: 17 new tests covering isolated mode, shared mode, nested delegation, cleanup, and more
@@ -343,7 +518,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context Preservation Across Nodes**: `reset_context` parameter for node agents
   - `agent(:name, reset_context: false)` preserves conversation history across nodes
   - Default: `reset_context: true` (fresh context for each node - safe default)
-  - NodeOrchestrator caches and reuses agent instances when `reset_context: false`
+  - Workflow caches and reuses agent instances when `reset_context: false`
   - Enables stateful workflows where agents remember previous node conversations
   - Perfect for iterative refinement, self-reflection loops, and chain-of-thought reasoning
 
@@ -359,15 +534,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removes memory-specific code from SwarmSDK core (moved to SwarmMemory plugin)
   - Maintains backward compatibility - permissions remain in core SDK (not plugin-specific)
   - Enables clean separation between core SDK and plugin features (memory, skills, etc.)
-  - Plugins can preserve their configuration when agents are cloned in NodeOrchestrator
+  - Plugins can preserve their configuration when agents are cloned in Workflow
 
-- **NodeOrchestrator**: Configurable scratchpad sharing modes
+- **Workflow**: Configurable scratchpad sharing modes
   - `scratchpad: :enabled` - Share scratchpad across all nodes
   - `scratchpad: :per_node` - Isolated scratchpad per node
   - `scratchpad: :disabled` - No scratchpad tools (default)
 
-- **CLI ConfigLoader**: Accepts both Swarm and NodeOrchestrator instances
-  - Bug fix: CLI now correctly handles NodeOrchestrator execution
+- **CLI ConfigLoader**: Accepts both Swarm and Workflow instances
+  - Bug fix: CLI now correctly handles Workflow execution
   - Enables node workflows to work seamlessly with CLI commands
 
 - **Error handling in Agent::Chat**: More robust exception handling

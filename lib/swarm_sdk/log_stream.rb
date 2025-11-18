@@ -93,6 +93,35 @@ module SwarmSDK
       def enabled?
         !Fiber[:log_stream_emitter].nil?
       end
+
+      # Emit an internal error event
+      #
+      # Provides consistent error event emission for all internal errors.
+      # These are errors that occur during execution but are handled gracefully
+      # (with fallback behavior) rather than causing failures.
+      #
+      # @param error [Exception] The caught exception
+      # @param source [String] Source module/class (e.g., "hook_triggers", "context_compactor")
+      # @param context [String] Specific operation context (e.g., "swarm_stop", "summarization")
+      # @param agent [Symbol, String, nil] Agent name if applicable
+      # @param metadata [Hash] Additional context data
+      # @return [void]
+      def emit_error(error, source:, context:, agent: nil, **metadata)
+        emit(
+          type: "internal_error",
+          source: source,
+          context: context,
+          agent: agent,
+          error_class: error.class.name,
+          error_message: error.message,
+          backtrace: error.backtrace&.first(5),
+          **metadata,
+        )
+      rescue StandardError
+        # Absolute fallback - if emit_error itself fails, don't break execution
+        # This should never happen, but we must be defensive
+        nil
+      end
     end
   end
 end

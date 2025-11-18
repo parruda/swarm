@@ -156,7 +156,7 @@ module SwarmMemory
       # @return [String] Memory prompt contribution
       def system_prompt_contribution(agent_definition:, storage:)
         # Extract mode from memory config
-        memory_config = agent_definition.memory
+        memory_config = agent_definition.plugin_config(:memory)
         mode = if memory_config.is_a?(SwarmMemory::DSL::MemoryConfig)
           memory_config.mode # MemoryConfig object from DSL
         elsif memory_config.respond_to?(:mode)
@@ -204,20 +204,100 @@ module SwarmMemory
       # @param agent_definition [Agent::Definition] Agent definition
       # @return [Boolean] True if agent has memory configuration
       def storage_enabled?(agent_definition)
-        agent_definition.memory_enabled?
+        memory_config = agent_definition.plugin_config(:memory)
+        return false if memory_config.nil?
+
+        # MemoryConfig object (from DSL)
+        return memory_config.enabled? if memory_config.respond_to?(:enabled?)
+
+        # Hash (from YAML) - check for directory key
+        if memory_config.is_a?(Hash)
+          directory = memory_config[:directory] || memory_config["directory"]
+          return !directory.nil? && !directory.to_s.strip.empty?
+        end
+
+        false
       end
 
       # Contribute to agent serialization
       #
-      # Preserves memory configuration when agents are cloned (e.g., in NodeOrchestrator).
+      # Preserves memory configuration when agents are cloned (e.g., in Workflow).
       # This allows memory configuration to persist across node transitions.
       #
       # @param agent_definition [Agent::Definition] Agent definition
       # @return [Hash] Memory config to include in to_h
       def serialize_config(agent_definition:)
-        return {} unless agent_definition.memory
+        memory_config = agent_definition.plugin_config(:memory)
+        return {} unless memory_config
 
-        { memory: agent_definition.memory }
+        { memory: memory_config }
+      end
+
+      # Snapshot plugin-specific state for an agent
+      #
+      # Captures memory read tracking state for session persistence.
+      # This allows agents to remember which memory entries they've read
+      # across sessions.
+      #
+      # @param agent_name [Symbol] Agent identifier
+      # @return [Hash] Plugin-specific state
+      def snapshot_agent_state(agent_name)
+        entries_with_digests = Core::StorageReadTracker.get_read_entries(agent_name)
+        return {} if entries_with_digests.empty?
+
+        { read_entries: entries_with_digests }
+      end
+
+      # Restore plugin-specific state for an agent
+      #
+      # Restores memory read tracking state from snapshot.
+      # This is idempotent - calling multiple times with same state
+      # produces the same result.
+      #
+      # @param agent_name [Symbol] Agent identifier
+      # @param state [Hash] Previously snapshotted state (with symbol keys)
+      # @return [void]
+      def restore_agent_state(agent_name, state)
+        entries = state[:read_entries] || state["read_entries"]
+        return unless entries
+
+        Core::StorageReadTracker.restore_read_entries(agent_name, entries)
+      end
+
+      # Get digest for a memory tool result
+      #
+      # Returns the digest for a MemoryRead tool call, enabling change detection
+      # hooks to know if a memory entry has been modified since last read.
+      #
+      # @param agent_name [Symbol] Agent identifier
+      # @param tool_name [String] Name of the tool
+      # @param path [String] Path of the memory entry
+      # @return [String, nil] Digest string or nil if not a memory tool
+      def get_tool_result_digest(agent_name:, tool_name:, path:)
+        return unless tool_name == "MemoryRead"
+
+        Core::StorageReadTracker.get_read_entries(agent_name)[path]
+      end
+
+      # Translate YAML configuration into DSL calls
+      #
+      # Called during YAML-to-DSL translation. Handles memory-specific YAML
+      # configuration and translates it into DSL method calls on the builder.
+      #
+      # @param builder [Agent::Builder] Builder instance (self in DSL context)
+      # @param agent_config [Hash] Full agent config from YAML
+      # @return [void]
+      def translate_yaml_config(builder, agent_config)
+        memory_config = agent_config[:memory]
+        return unless memory_config
+
+        builder.instance_eval do
+          memory do
+            directory(memory_config[:directory]) if memory_config[:directory]
+            adapter(memory_config[:adapter]) if memory_config[:adapter]
+            mode(memory_config[:mode]) if memory_config[:mode]
+          end
+        end
       end
 
       # Lifecycle: Agent initialized
@@ -239,7 +319,7 @@ module SwarmMemory
         return unless storage # Only proceed if memory is enabled for this agent
 
         # Extract mode from memory config
-        memory_config = agent_definition.memory
+        memory_config = agent_definition.plugin_config(:memory)
         mode = if memory_config.is_a?(SwarmMemory::DSL::MemoryConfig)
           memory_config.mode # MemoryConfig object from DSL
         elsif memory_config.respond_to?(:mode)
@@ -281,7 +361,7 @@ module SwarmMemory
             agent_definition: agent_definition,
           )
 
-          agent.with_tool(load_skill_tool)
+          agent.add_tool(load_skill_tool)
         end
 
         # Mark mode-specific memory tools + LoadSkill as immutable

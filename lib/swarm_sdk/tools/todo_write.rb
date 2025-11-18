@@ -7,6 +7,13 @@ module SwarmSDK
     # This tool helps agents track progress on complex multi-step tasks.
     # Each agent maintains its own independent todo list.
     class TodoWrite < RubyLLM::Tool
+      # Factory pattern: declare what parameters this tool needs for instantiation
+      class << self
+        def creation_requirements
+          [:agent_name]
+        end
+      end
+
       description <<~DESC
         Use this tool to create and manage a structured task list for your current work session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.
         It also helps the user understand the progress of the task and overall progress of their requests.
