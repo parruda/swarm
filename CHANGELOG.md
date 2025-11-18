@@ -1,3 +1,11 @@
+## [1.0.9]
+
+### Added
+- **Zero Data Retention (ZDR) support for OpenAI Responses API**: Added ZDR mode to disable conversation continuity for privacy-focused use cases
+  - New `zdr` configuration parameter (boolean) that can be set in YAML configuration files
+  - When enabled, sets `previous_response_id` to nil, ensuring each API call is independent
+  - Supported in Configuration, CLI (`--zdr` flag), and MCP generator
+
 ## [1.0.8]
 
 ### Changed
