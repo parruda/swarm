@@ -32,6 +32,132 @@ result = swarm.execute("Task prompt")
 
 ## Top-Level Methods
 
+### SwarmSDK.agent
+
+Register an agent globally for reuse across multiple swarms.
+
+**Signature:**
+```ruby
+SwarmSDK.agent(name) {|builder| ... } → void
+```
+
+**Parameters:**
+- `name` (Symbol, required): Unique agent name
+- `block` (required): Agent configuration block (uses [Agent Builder DSL](#agent-builder-dsl))
+
+**Description:**
+Registers an agent definition in a global registry, allowing it to be referenced by name in any swarm or workflow without re-defining it. This promotes code reuse and separation of concerns.
+
+**Duplicate Registration:**
+Raises `ArgumentError` if an agent with the same name is already registered. Use `SwarmSDK.clear_agent_registry!` to reset.
+
+**Example - Define agents in separate files:**
+```ruby
+# agents/backend.rb
+SwarmSDK.agent :backend do
+  model "claude-sonnet-4"
+  description "Backend developer"
+  system_prompt "You build APIs and databases"
+  tools :Read, :Edit, :Bash
+  # Note: Don't set delegates_to here - it's swarm-specific!
+end
+
+# agents/database.rb
+SwarmSDK.agent :database do
+  model "claude-sonnet-4"
+  description "Database specialist"
+  system_prompt "You design schemas and write migrations"
+  tools :Read, :Edit
+end
+```
+
+**Example - Reference in swarms:**
+```ruby
+# Load agent definitions
+require_relative "agents/backend"
+require_relative "agents/database"
+
+# Reference by name and configure delegation (swarm-specific)
+swarm = SwarmSDK.build do
+  name "Dev Team"
+  lead :backend
+
+  agent :backend do
+    delegates_to :database  # Delegation is swarm-specific
+  end
+  agent :database    # Pulls from registry as-is
+end
+```
+
+**Example - Override registry settings:**
+```ruby
+swarm = SwarmSDK.build do
+  name "Extended Team"
+  lead :backend
+
+  # Registry config applied first, then override block
+  agent :backend do
+    delegates_to :database, :cache  # Set delegation for this swarm
+    tools :CustomTool               # Adds to registry tools
+    timeout 300                     # Overrides registry timeout
+  end
+end
+```
+
+**Workflow Auto-Resolution:**
+Agents referenced in workflow nodes are automatically resolved from the registry if not defined at workflow level:
+
+```ruby
+SwarmSDK.workflow do
+  name "Pipeline"
+  start_node :build
+
+  # No need to define :backend here - auto-resolved from registry!
+  node :build do
+    agent(:backend)  # Resolved from global registry
+  end
+
+  node :test do
+    agent(:backend).delegates_to(:database)  # Both resolved from registry
+  end
+end
+```
+
+**Use Cases:**
+- **Code reuse**: Define agents once, use in multiple swarms
+- **Separation of concerns**: Agent definitions in dedicated files
+- **Testing**: Clear registry between tests with `SwarmSDK.clear_agent_registry!`
+- **Organization**: Large projects with many agents
+
+---
+
+### SwarmSDK.clear_agent_registry!
+
+Clear all registered agents from the global registry.
+
+**Signature:**
+```ruby
+SwarmSDK.clear_agent_registry! → void
+```
+
+**Description:**
+Removes all agents from the global registry. Primarily used for testing to ensure isolation between test cases.
+
+**Example:**
+```ruby
+# In test setup
+def setup
+  SwarmSDK.clear_agent_registry!
+end
+
+# Or in RSpec
+before(:each) do
+  SwarmSDK.clear_agent_registry!
+end
+```
+
+---
+
 ### SwarmSDK.build
 
 Build a simple multi-agent swarm.

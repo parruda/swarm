@@ -2858,7 +2858,93 @@ project/
 └── .env                        # API keys
 ```
 
-### 8.3 Testing Strategies
+### 8.3 Reusable Agent Definitions (Global Registry)
+
+For large projects, define agents once and reuse them across multiple swarms.
+
+**Register agents globally:**
+```ruby
+# agents/backend.rb
+SwarmSDK.agent :backend do
+  model "claude-sonnet-4"
+  description "Backend developer"
+  system_prompt "You build APIs and databases"
+  tools :Read, :Edit, :Bash
+  # Note: Don't set delegates_to here - it's swarm-specific!
+end
+
+# agents/database.rb
+SwarmSDK.agent :database do
+  model "claude-sonnet-4"
+  description "Database specialist"
+  system_prompt "You design schemas and write migrations"
+  tools :Read, :Edit
+end
+```
+
+**Reference in swarms (set delegation per-swarm):**
+```ruby
+# Load agent definitions first
+require_relative "agents/backend"
+require_relative "agents/database"
+
+# Reference by name and configure delegation (swarm-specific)
+swarm = SwarmSDK.build do
+  name "Dev Team"
+  lead :backend
+
+  agent :backend do
+    delegates_to :database  # Delegation is swarm-specific
+  end
+  agent :database    # Pulls from registry as-is
+end
+```
+
+**Override other registry settings:**
+```ruby
+swarm = SwarmSDK.build do
+  name "Extended Team"
+  lead :backend
+
+  # Registry config applied first, then override block
+  agent :backend do
+    delegates_to :database, :cache  # Set delegation for this swarm
+    tools :CustomTool               # Adds to registry tools
+    timeout 300                     # Overrides registry timeout
+  end
+end
+```
+
+**Workflow auto-resolution:**
+Agents referenced in workflow nodes automatically resolve from the global registry:
+
+```ruby
+SwarmSDK.workflow do
+  name "Pipeline"
+  start_node :build
+
+  # No need to define :backend here - auto-resolved from registry!
+  node :build do
+    agent(:backend)
+  end
+end
+```
+
+**Testing with registry:**
+```ruby
+# Clear registry between tests
+def setup
+  SwarmSDK.clear_agent_registry!
+end
+```
+
+**Benefits:**
+- **Code reuse**: Define agents once, use in multiple swarms
+- **Separation of concerns**: Agent definitions in dedicated files
+- **Organization**: Large projects with many agents stay manageable
+- **DRY principle**: No duplication of agent configurations
+
+### 8.4 Testing Strategies
 
 **Unit test agents**:
 ```ruby
@@ -2920,7 +3006,7 @@ allow(LLM).to receive(:chat).and_return(
 )
 ```
 
-### 8.4 Performance Optimization
+### 8.5 Performance Optimization
 
 **1. Choose appropriate models**:
 ```ruby
@@ -2993,7 +3079,7 @@ node :summarizer do
 end
 ```
 
-### 8.5 Security Considerations
+### 8.6 Security Considerations
 
 **1. Restrict file access**:
 ```ruby
@@ -3099,7 +3185,7 @@ end
 - **Priority**: Explicit parameter > Global setting > Environment variable > Default (true)
 - **Non-breaking**: Defaults to `true` for backward compatibility
 
-### 8.6 Cost Management
+### 8.7 Cost Management
 
 **Track costs in real-time**:
 ```ruby
@@ -3153,7 +3239,7 @@ end
 - [ ] Batch similar operations
 - [ ] Monitor and set cost alerts
 
-### 8.7 Monitoring and Observability
+### 8.8 Monitoring and Observability
 
 **Structured logging to files**:
 ```ruby
@@ -3205,7 +3291,7 @@ end
 }
 ```
 
-### 8.8 Common Patterns Summary
+### 8.9 Common Patterns Summary
 
 **Pattern: Code Review Workflow**
 ```
@@ -3263,7 +3349,7 @@ You've now learned **100% of SwarmSDK features**:
 
 ✅ **Part 7: Production Features** - Structured logging, token/cost tracking, error handling, validation, document conversion
 
-✅ **Part 8: Best Practices** - Architecture patterns, testing strategies, performance optimization, security, cost management, monitoring
+✅ **Part 8: Best Practices** - Architecture patterns, reusable agent definitions (global registry), testing strategies, performance optimization, security, cost management, monitoring
 
 ## Next Steps
 

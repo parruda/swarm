@@ -1239,6 +1239,8 @@ Congratulations! You've learned the fundamentals of SwarmSDK.
 
 **Agent Delegation Patterns**: Learn advanced collaboration strategies like hierarchical delegation, peer collaboration, and specialist chains.
 
+**Reusable Agent Definitions**: Use the Global Agent Registry (`SwarmSDK.agent`) to define agents once and reuse them across multiple swarms—perfect for large projects with shared agents.
+
 **Permissions System**: Discover how to restrict agents to specific directories, prevent dangerous commands, and create secure multi-agent systems.
 
 **Hooks and Customization**: Master pre/post hooks for tool calls, prompt injection, and workflow automation.

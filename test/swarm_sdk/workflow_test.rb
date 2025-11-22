@@ -305,7 +305,7 @@ module SwarmSDK
         end
       end
 
-      assert_match(/references undefined agent/, error.message)
+      assert_match(/Agent 'nonexistent_agent' referenced in node but not found/, error.message)
     end
 
     def test_circular_dependency_raises_error

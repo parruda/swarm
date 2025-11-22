@@ -5,6 +5,47 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Global Agent Registry**: Declare agents in separate files and reference them by name across swarms
+  - **`SwarmSDK.agent(:name) { ... }`**: Register agents globally for reuse across multiple swarms
+  - **`SwarmSDK.clear_agent_registry!`**: Clear all registrations (useful for testing)
+  - **Registry lookup in builders**: `agent :name` (no block) fetches from global registry
+  - **Registry + overrides**: `agent :name do ... end` applies registry config then override block
+  - **Duplicate registration error**: Raises `ArgumentError` if registering same name twice
+  - **Workflow node auto-resolution**: Agents referenced in nodes automatically resolve from registry
+    - Checks workflow-level definitions first, then falls back to global registry
+    - Includes delegation targets (`delegates_to`) in auto-resolution
+  - **Best practice**: Don't set `delegates_to` in registry—delegation is swarm-specific. Set it as an override in each swarm.
+  - **Use case**: Define agents once in separate files, compose into multiple swarms without duplication
+  - **Example**:
+    ```ruby
+    # agents/backend.rb
+    SwarmSDK.agent :backend do
+      model "claude-sonnet-4"
+      description "Backend developer"
+      tools :Read, :Edit, :Bash
+    end
+
+    # swarm.rb
+    SwarmSDK.build do
+      name "Dev Team"
+      lead :backend
+      agent :backend  # Pulls from registry
+    end
+
+    # workflow.rb - agents auto-resolve in nodes
+    SwarmSDK.workflow do
+      name "Pipeline"
+      start_node :build
+      node(:build) { agent(:backend) }  # Auto-resolved from registry
+    end
+    ```
+  - **Files**: `lib/swarm_sdk/agent_registry.rb`, `lib/swarm_sdk.rb`, `lib/swarm_sdk/builders/base_builder.rb`, `lib/swarm_sdk/workflow/builder.rb`
+  - **Tests**: 32 comprehensive tests in `test/swarm_sdk/agent_registry_test.rb`
+
 ## [2.4.2]
 
 ### Fixed

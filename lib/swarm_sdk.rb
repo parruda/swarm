@@ -95,6 +95,73 @@ module SwarmSDK
       Config.reset!
     end
 
+    # Register a global agent definition
+    #
+    # Declares an agent configuration that can be referenced by name in any
+    # swarm definition. This allows defining agents in separate files and
+    # composing them into swarms without duplication.
+    #
+    # The registered block uses the Agent::Builder DSL and is executed when
+    # the agent is referenced in a swarm definition.
+    #
+    # @param name [Symbol, String] Agent name (will be symbolized)
+    # @yield Agent configuration block using Agent::Builder DSL
+    # @return [void]
+    # @raise [ArgumentError] If no block is provided
+    #
+    # @example Register agent in separate file
+    #   # agents/backend.rb
+    #   SwarmSDK.agent :backend do
+    #     model "claude-sonnet-4"
+    #     description "Backend API developer"
+    #     system_prompt "You build REST APIs"
+    #     tools :Read, :Edit, :Bash
+    #     delegates_to :database
+    #   end
+    #
+    # @example Reference in swarm definition
+    #   # swarm.rb
+    #   require_relative "agents/backend"
+    #
+    #   SwarmSDK.build do
+    #     name "Dev Team"
+    #     lead :backend
+    #
+    #     agent :backend  # Pulls from registry
+    #   end
+    #
+    # @example Extend registered agent with overrides
+    #   SwarmSDK.build do
+    #     name "Extended Team"
+    #     lead :backend
+    #
+    #     agent :backend do
+    #       # Registry config applied first, then this block
+    #       tools :CustomTool    # Adds to existing tools
+    #       delegates_to :cache  # Adds delegation target
+    #     end
+    #   end
+    #
+    # @see AgentRegistry
+    def agent(name, &block)
+      AgentRegistry.register(name, &block)
+    end
+
+    # Clear the global agent registry
+    #
+    # Removes all registered agent definitions. Primarily useful for testing
+    # to ensure clean state between tests.
+    #
+    # @return [void]
+    #
+    # @example In test teardown
+    #   def teardown
+    #     SwarmSDK.clear_agent_registry!
+    #   end
+    def clear_agent_registry!
+      AgentRegistry.clear
+    end
+
     # Main entry point for DSL - builds simple multi-agent swarms
     #
     # @return [Swarm] Always returns a Swarm instance

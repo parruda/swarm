@@ -119,6 +119,9 @@ module SwarmSDK
       #
       # @return [Workflow] Configured workflow instance
       def build_workflow
+        # Resolve any missing agents from global registry before building definitions
+        resolve_missing_agents_from_registry
+
         # Build agent definitions
         agent_definitions = build_agent_definitions
 
@@ -137,6 +140,52 @@ module SwarmSDK
         workflow.swarm_registry_config = @swarm_registry_config if @swarm_registry_config.any?
 
         workflow
+      end
+
+      # Resolve agents referenced in nodes that aren't defined at workflow level
+      #
+      # For each agent referenced in a node but not defined with `agent :name do ... end`,
+      # checks the global AgentRegistry and loads the agent if found.
+      #
+      # This allows workflows to reference globally registered agents without
+      # explicitly re-declaring them at the workflow level.
+      #
+      # @return [void]
+      # @raise [ConfigurationError] If agent not found in workflow or registry
+      def resolve_missing_agents_from_registry
+        # Collect all agents referenced in nodes
+        referenced_agents = collect_referenced_agents
+
+        # Find agents that aren't defined at workflow level
+        defined_agents = @agents.keys
+        missing_agents = referenced_agents - defined_agents
+
+        # Try to resolve each missing agent from the global registry
+        missing_agents.each do |agent_name|
+          if AgentRegistry.registered?(agent_name)
+            # Load from registry (uses same method as BaseBuilder)
+            load_agent_from_registry(agent_name)
+          else
+            raise ConfigurationError,
+              "Agent '#{agent_name}' referenced in node but not found. " \
+                "Either define at workflow level with `agent :#{agent_name} do ... end` " \
+                "or register globally with `SwarmSDK.agent :#{agent_name} do ... end`"
+          end
+        end
+      end
+
+      # Collect all agent names referenced across all nodes
+      #
+      # Includes both directly referenced agents and delegation targets.
+      #
+      # @return [Array<Symbol>] Unique agent names referenced in nodes
+      def collect_referenced_agents
+        @nodes.values.flat_map do |node_builder|
+          # Collect both direct agents and their delegation targets
+          node_builder.agent_configs.flat_map do |config|
+            [config[:agent]] + Array(config[:delegates_to])
+          end
+        end.uniq
       end
     end
   end

@@ -64,17 +64,29 @@ module SwarmSDK
         @swarm_registry_config = builder.registrations
       end
 
-      # Define an agent with fluent API or load from markdown content
+      # Define an agent with fluent API, load from markdown, or reference registry
       #
-      # Supports two forms:
-      # 1. Inline DSL: agent :name do ... end
-      # 2. Markdown content: agent :name, <<~MD ... MD
+      # Supports multiple forms:
+      # 1. Registry lookup: agent :name (pulls from global registry)
+      # 2. Registry + overrides: agent :name do ... end (when registered)
+      # 3. Inline DSL: agent :name do ... end (when not registered)
+      # 4. Markdown content: agent :name, <<~MD ... MD
+      # 5. Markdown + overrides: agent :name, <<~MD do ... end
       #
       # @example Inline DSL
       #   agent :backend do
       #     model "gpt-5"
       #     system_prompt "You build APIs"
       #     tools :Read, :Write
+      #   end
+      #
+      # @example Registry lookup (agent must be registered with SwarmSDK.agent)
+      #   agent :backend  # Pulls configuration from registry
+      #
+      # @example Registry + overrides
+      #   agent :backend do
+      #     # Base config from registry, then apply overrides
+      #     tools :CustomTool  # Adds to registry-defined tools
       #   end
       #
       # @example Markdown content
@@ -87,19 +99,38 @@ module SwarmSDK
       #     You build APIs.
       #   MD
       def agent(name, content = nil, &block)
+        name = name.to_sym
+
         # Case 1: agent :name, <<~MD do ... end (markdown + overrides)
         if content.is_a?(String) && block_given? && markdown_content?(content)
           load_agent_from_markdown_with_overrides(content, name, &block)
+
         # Case 2: agent :name, <<~MD (markdown only)
         elsif content.is_a?(String) && !block_given? && markdown_content?(content)
           load_agent_from_markdown(content, name)
-        # Case 3: agent :name do ... end (inline DSL)
+
+        # Case 3: agent :name (registry lookup only - no content, no block)
+        elsif content.nil? && !block_given?
+          load_agent_from_registry(name)
+
+        # Case 4: agent :name do ... end (with registered agent - registry + overrides)
+        elsif content.nil? && block_given? && AgentRegistry.registered?(name)
+          load_agent_from_registry_with_overrides(name, &block)
+
+        # Case 5: agent :name do ... end (inline DSL - not registered)
         elsif block_given?
           builder = Agent::Builder.new(name)
           builder.instance_eval(&block)
           @agents[name] = builder
+
         else
-          raise ArgumentError, "Invalid agent definition. Use: agent :name { ... } OR agent :name, <<~MD ... MD OR agent :name, <<~MD do ... end"
+          raise ArgumentError,
+            "Invalid agent definition for '#{name}'. Use:\n  " \
+              "agent :#{name} { ... }           # Inline DSL\n  " \
+              "agent :#{name}                   # Registry lookup\n  " \
+              "agent :#{name} { ... }           # Registry + overrides (if registered)\n  " \
+              "agent :#{name}, <<~MD ... MD     # Markdown\n  " \
+              "agent :#{name}, <<~MD do ... end # Markdown + overrides"
         end
       end
 
@@ -136,6 +167,54 @@ module SwarmSDK
       # @return [Boolean] true if string contains markdown frontmatter
       def markdown_content?(str)
         str.start_with?("---") || str.include?("\n---\n")
+      end
+
+      # Load an agent from the global registry
+      #
+      # Retrieves the registered agent block and executes it in the context
+      # of a new Agent::Builder.
+      #
+      # @param name [Symbol] Agent name
+      # @return [void]
+      # @raise [ConfigurationError] If agent is not registered
+      #
+      # @example
+      #   load_agent_from_registry(:backend)
+      def load_agent_from_registry(name)
+        registered_proc = AgentRegistry.get(name)
+        unless registered_proc
+          raise ConfigurationError,
+            "Agent '#{name}' not found in registry. " \
+              "Either define inline with `agent :#{name} do ... end` or " \
+              "register globally with `SwarmSDK.agent :#{name} do ... end`"
+        end
+
+        builder = Agent::Builder.new(name)
+        builder.instance_eval(&registered_proc)
+        @agents[name] = builder
+      end
+
+      # Load an agent from the registry with additional overrides
+      #
+      # Applies the registered configuration first, then executes the
+      # override block to customize the agent.
+      #
+      # @param name [Symbol] Agent name
+      # @yield Override block with additional configuration
+      # @return [void]
+      #
+      # @example
+      #   load_agent_from_registry_with_overrides(:backend) do
+      #     tools :CustomTool  # Adds to registry-defined tools
+      #   end
+      def load_agent_from_registry_with_overrides(name, &override_block)
+        registered_proc = AgentRegistry.get(name)
+        # Guaranteed to exist since we checked in the condition
+
+        builder = Agent::Builder.new(name)
+        builder.instance_eval(&registered_proc)  # Base config from registry
+        builder.instance_eval(&override_block)   # Apply overrides
+        @agents[name] = builder
       end
 
       # Load an agent from markdown content
