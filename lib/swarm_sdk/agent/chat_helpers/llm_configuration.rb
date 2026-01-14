@@ -117,6 +117,9 @@ module SwarmSDK
         def build_custom_context(provider:, base_url:, timeout:)
           RubyLLM.context do |config|
             config.request_timeout = timeout
+            # Set read_timeout to match request_timeout for streaming support
+            # This ensures long gaps between chunks (model thinking) don't cause timeouts
+            config.read_timeout = SwarmSDK.config.llm_read_timeout || timeout
 
             configure_provider_base_url(config, provider, base_url) if base_url
           end

@@ -56,6 +56,15 @@ module SwarmSDK
       gpustack_api_key: [:gpustack_api_key, "GPUSTACK_API_KEY"],
     }.freeze
 
+    # RubyLLM connection settings that proxy to RubyLLM.config
+    # Maps SwarmSDK config key => [RubyLLM config key, ENV variable, default value]
+    RUBYLLM_CONNECTION_MAPPINGS = {
+      llm_request_timeout: [:request_timeout, "SWARM_SDK_LLM_REQUEST_TIMEOUT", 300],
+      llm_read_timeout: [:read_timeout, "SWARM_SDK_LLM_READ_TIMEOUT", nil], # nil = use request_timeout
+      llm_open_timeout: [:open_timeout, "SWARM_SDK_LLM_OPEN_TIMEOUT", 30],
+      llm_write_timeout: [:write_timeout, "SWARM_SDK_LLM_WRITE_TIMEOUT", 30],
+    }.freeze
+
     # SwarmSDK defaults that can be overridden
     # Maps config key => [ENV variable, default proc]
     DEFAULTS_MAPPINGS = {
@@ -149,6 +158,46 @@ module SwarmSDK
       define_method("#{config_key}=") do |value|
         @explicit_values[config_key] = value
         RubyLLM.config.public_send("#{ruby_llm_key}=", value) if value
+      end
+    end
+
+    # ========== RubyLLM Connection Accessors (with RubyLLM proxying) ==========
+
+    # @!method llm_request_timeout
+    #   Get the LLM request timeout (seconds)
+    #   @return [Integer] The timeout (default: 300)
+    #
+    # @!method llm_read_timeout
+    #   Get the LLM read timeout (seconds) - time to wait between chunks
+    #   @return [Integer, nil] The timeout (nil = use request_timeout)
+    #
+    # @!method llm_open_timeout
+    #   Get the LLM connection open timeout (seconds)
+    #   @return [Integer] The timeout (default: 30)
+    #
+    # @!method llm_write_timeout
+    #   Get the LLM write timeout (seconds)
+    #   @return [Integer] The timeout (default: 30)
+
+    RUBYLLM_CONNECTION_MAPPINGS.each_key do |config_key|
+      ruby_llm_key, _env_key, default_value = RUBYLLM_CONNECTION_MAPPINGS[config_key]
+
+      # Getter with default fallback
+      define_method(config_key) do
+        ensure_env_loaded!
+        if @explicit_values.key?(config_key)
+          @explicit_values[config_key]
+        elsif @env_values.key?(config_key)
+          @env_values[config_key]
+        else
+          default_value
+        end
+      end
+
+      # Setter with RubyLLM proxying
+      define_method("#{config_key}=") do |value|
+        @explicit_values[config_key] = value
+        RubyLLM.config.public_send("#{ruby_llm_key}=", value)
       end
     end
 
@@ -250,6 +299,18 @@ module SwarmSDK
         next unless ENV.key?(env_key)
 
         value = ENV[env_key]
+        @env_values[config_key] = value
+
+        # Proxy to RubyLLM
+        RubyLLM.config.public_send("#{ruby_llm_key}=", value)
+      end
+
+      # Load RubyLLM connection settings and proxy to RubyLLM
+      RUBYLLM_CONNECTION_MAPPINGS.each do |config_key, (ruby_llm_key, env_key, _default)|
+        next if @explicit_values.key?(config_key)
+        next unless ENV.key?(env_key)
+
+        value = parse_env_value(ENV[env_key], config_key)
         @env_values[config_key] = value
 
         # Proxy to RubyLLM
