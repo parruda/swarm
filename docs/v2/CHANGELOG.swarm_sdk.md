@@ -5,6 +5,40 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.5] - 2026-01-14
+
+### Added
+
+- **Configurable LLM Connection Timeouts**: Fine-grained control over RubyLLM connection timeouts
+  - **New configuration options**:
+    - `llm_request_timeout` (default: 300s) - Maximum time for entire LLM request
+    - `llm_read_timeout` (default: nil, uses request_timeout) - Time between data chunks (critical for streaming)
+    - `llm_open_timeout` (default: 30s) - Connection establishment timeout
+    - `llm_write_timeout` (default: 30s) - Write operation timeout
+  - **Environment variables**:
+    - `SWARM_SDK_LLM_REQUEST_TIMEOUT`
+    - `SWARM_SDK_LLM_READ_TIMEOUT`
+    - `SWARM_SDK_LLM_OPEN_TIMEOUT`
+    - `SWARM_SDK_LLM_WRITE_TIMEOUT`
+  - **Automatic RubyLLM proxying**: Settings automatically applied to RubyLLM.config
+  - **Streaming fix**: `read_timeout` now automatically set to match `request_timeout` in custom contexts
+    - Prevents timeouts during long pauses between chunks (model thinking time)
+    - Critical for streaming responses where gaps between chunks can be long
+  - **Use case**: Customize timeout behavior per deployment environment or specific model requirements
+  - **Configuration example**:
+    ```ruby
+    SwarmSDK.configure do |config|
+      config.llm_request_timeout = 600  # 10 minutes for complex requests
+      config.llm_read_timeout = 600     # Allow long gaps between chunks
+      config.llm_open_timeout = 60      # Allow slower connection establishment
+    end
+    ```
+  - **Files**: `lib/swarm_sdk/config.rb`, `lib/swarm_sdk/agent/chat_helpers/llm_configuration.rb`
+
+### Dependencies
+
+- Updated `ruby_llm_swarm` to `~> 1.9.7`
+
 ## [2.7.4] - 2025-12-17
 
 ### Added
