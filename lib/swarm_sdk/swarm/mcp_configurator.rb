@@ -45,17 +45,23 @@ module SwarmSDK
         Swarm.apply_mcp_logging_configuration
 
         mcp_server_configs.each do |server_config|
+          tools_config = server_config[:tools]
+          mode = tools_config.nil? ? :discovery : :optimized
+
+          # Emit event before initialization
+          emit_mcp_init_start(agent_name, server_config, mode)
+
           client = initialize_mcp_client(server_config)
 
           # Store client for cleanup
           @mcp_clients[agent_name] << client
 
-          tools_config = server_config[:tools]
-
           if tools_config.nil?
             # Discovery mode: Fetch all tools from server (calls tools/list)
             # client.tools returns RubyLLM::Tool instances (already wrapped by internal Coordinator)
             all_tools = client.tools
+            tool_names = all_tools.map { |t| t.respond_to?(:name) ? t.name : t.to_s }
+
             all_tools.each do |tool|
               chat.tool_registry.register(
                 tool,
@@ -63,10 +69,15 @@ module SwarmSDK
                 metadata: { server_name: server_config[:name] },
               )
             end
+
+            # Emit completion event for discovery mode
+            emit_mcp_init_complete(agent_name, server_config, mode, all_tools.size, tool_names)
             RubyLLM.logger.debug("SwarmSDK: Discovered and registered #{all_tools.size} tools from MCP server '#{server_config[:name]}'")
           else
             # Optimized mode: Create tool stubs without tools/list RPC (Plan 025)
             # Use client directly (it has internal coordinator)
+            tool_names = tools_config.map(&:to_s)
+
             tools_config.each do |tool_name|
               stub = Tools::McpToolStub.new(
                 client: client,
@@ -78,6 +89,9 @@ module SwarmSDK
                 metadata: { server_name: server_config[:name] },
               )
             end
+
+            # Emit completion event for optimized mode
+            emit_mcp_init_complete(agent_name, server_config, mode, tools_config.size, tool_names)
             RubyLLM.logger.debug("SwarmSDK: Registered #{tools_config.size} tool stubs from MCP server '#{server_config[:name]}' (lazy schema)")
           end
         rescue StandardError => e
@@ -186,6 +200,42 @@ module SwarmSDK
         streamable_config[:rate_limit] = config[:rate_limit] if config[:rate_limit]
 
         streamable_config
+      end
+
+      # Emit MCP server initialization start event
+      #
+      # @param agent_name [Symbol] Agent name
+      # @param server_config [Hash] MCP server configuration
+      # @param mode [Symbol] Initialization mode (:discovery or :optimized)
+      # @return [void]
+      def emit_mcp_init_start(agent_name, server_config, mode)
+        LogStream.emit(
+          type: "mcp_server_init_start",
+          agent: agent_name,
+          server_name: server_config[:name],
+          transport_type: server_config[:type],
+          mode: mode,
+        )
+      end
+
+      # Emit MCP server initialization complete event
+      #
+      # @param agent_name [Symbol] Agent name
+      # @param server_config [Hash] MCP server configuration
+      # @param mode [Symbol] Initialization mode (:discovery or :optimized)
+      # @param tool_count [Integer] Number of tools registered
+      # @param tool_names [Array<String>] Names of registered tools
+      # @return [void]
+      def emit_mcp_init_complete(agent_name, server_config, mode, tool_count, tool_names)
+        LogStream.emit(
+          type: "mcp_server_init_complete",
+          agent: agent_name,
+          server_name: server_config[:name],
+          transport_type: server_config[:type],
+          mode: mode,
+          tool_count: tool_count,
+          tools: tool_names,
+        )
       end
     end
   end

@@ -5,8 +5,13 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [2.7.6]
 
+- **MCP Server Initialization Events**: New events emitted during MCP server setup for monitoring and debugging
+  - `mcp_server_init_start` - Emitted before MCP server initialization begins
+  - `mcp_server_init_complete` - Emitted after successful MCP server initialization
+  - **Event fields**: `agent`, `server_name`, `transport_type`, `mode` (`:discovery` or `:optimized`), `tool_count`, `tools`
+  - **Files**: `lib/swarm_sdk/swarm/mcp_configurator.rb`
 - Only extracts JPEG images (DCTDecode format) which are LLM API compatible
 
 ## [2.7.5] - 2026-01-14
