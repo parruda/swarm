@@ -4,8 +4,10 @@ module SwarmSDK
   module Tools
     module ImageExtractors
       # Extracts images from PDF documents
-      # Supports JPEG (DCTDecode), FlateDecode, and LZWDecode formats
-      # Converts non-JPEG images to TIFF format
+      # Only extracts JPEG images (DCTDecode format) which are LLM API compatible
+      # Non-JPEG images (FlateDecode, LZWDecode) are skipped because they would
+      # require TIFF format which is not supported by LLM APIs
+      # Supported LLM image formats: ['png', 'jpeg', 'gif', 'webp']
       class PdfImageExtractor
         class << self
           # Extract all images from a PDF document
@@ -65,11 +67,13 @@ module SwarmSDK
 
             case filter
             when :DCTDecode
-              # JPEG images can be saved directly
+              # JPEG images can be saved directly - LLM API compatible
               save_jpeg(stream, page_number, name, temp_dir)
             when :FlateDecode, :LZWDecode, nil
-              # Raw or compressed formats - save as TIFF
-              save_as_tiff(stream, page_number, name, temp_dir)
+              # Skip non-JPEG images to avoid TIFF format (not supported by LLM APIs)
+              # LLM APIs only support: ['png', 'jpeg', 'gif', 'webp']
+              # These images would require TIFF conversion which causes API errors
+              nil
             end
             # Unsupported formats return nil
           rescue StandardError
