@@ -33,22 +33,24 @@ module SwarmSDK
     class McpToolStub < Base
       removable true # MCP tools can be controlled by skills
 
-      attr_reader :name, :client
+      attr_reader :name, :client, :server_name
 
       # Create a new MCP tool stub
       #
       # @param client [RubyLLM::MCP::Client] MCP client instance
       # @param name [String] Tool name
+      # @param server_name [String, nil] MCP server name for error context
       # @param description [String, nil] Tool description (optional, fetched if nil)
       # @param schema [Hash, nil] Tool input schema (optional, fetched if nil)
       #
       # @example Minimal stub (lazy description + schema)
-      #   McpToolStub.new(client: client, name: "search")
+      #   McpToolStub.new(client: client, name: "search", server_name: "codebase")
       #
       # @example With description (lazy schema only)
       #   McpToolStub.new(
       #     client: client,
       #     name: "search",
+      #     server_name: "codebase",
       #     description: "Search the codebase"
       #   )
       #
@@ -56,14 +58,16 @@ module SwarmSDK
       #   McpToolStub.new(
       #     client: client,
       #     name: "search",
+      #     server_name: "codebase",
       #     description: "Search the codebase",
       #     schema: { type: "object", properties: {...} }
       #   )
-      def initialize(client:, name:, description: nil, schema: nil)
+      def initialize(client:, name:, server_name: nil, description: nil, schema: nil)
         super()
         @client = client
         @name = name
         @mcp_name = name
+        @server_name = server_name || "unknown"
         @description = description || "MCP tool: #{name}"
         @input_schema = schema
         @schema_loaded = !schema.nil?
@@ -93,6 +97,9 @@ module SwarmSDK
       #
       # @param params [Hash] Tool parameters
       # @return [String, Hash] Tool result content or error hash
+      # @raise [MCPTimeoutError] When the MCP server times out
+      # @raise [MCPTransportError] When there's a transport-level error
+      # @raise [MCPError] When any other MCP error occurs
       def execute(**params)
         # Use client.call_tool (client has internal coordinator)
         result = @client.call_tool(
@@ -102,6 +109,23 @@ module SwarmSDK
 
         # client.call_tool returns the result content directly
         result
+      rescue RubyLLM::MCP::Errors::TimeoutError => e
+        raise MCPTimeoutError, format_mcp_error(
+          "MCP request timed out",
+          original_message: e.message,
+          request_id: e.request_id,
+        )
+      rescue RubyLLM::MCP::Errors::TransportError => e
+        raise MCPTransportError, format_mcp_error(
+          "MCP transport error",
+          original_message: e.message,
+          code: e.code,
+        )
+      rescue RubyLLM::MCP::Errors::BaseError => e
+        raise MCPError, format_mcp_error(
+          "MCP error",
+          original_message: e.message,
+        )
       end
 
       private
@@ -112,6 +136,9 @@ module SwarmSDK
       # Multiple concurrent fibers will only trigger one fetch.
       #
       # @return [void]
+      # @raise [MCPTimeoutError] When the MCP server times out during schema fetch
+      # @raise [MCPTransportError] When there's a transport-level error
+      # @raise [MCPError] When any other MCP error occurs
       def ensure_schema_loaded!
         return if @schema_loaded
 
@@ -131,6 +158,40 @@ module SwarmSDK
 
           @schema_loaded = true
         end
+      rescue RubyLLM::MCP::Errors::TimeoutError => e
+        raise MCPTimeoutError, format_mcp_error(
+          "MCP schema fetch timed out",
+          original_message: e.message,
+          request_id: e.request_id,
+        )
+      rescue RubyLLM::MCP::Errors::TransportError => e
+        raise MCPTransportError, format_mcp_error(
+          "MCP transport error during schema fetch",
+          original_message: e.message,
+          code: e.code,
+        )
+      rescue RubyLLM::MCP::Errors::BaseError => e
+        raise MCPError, format_mcp_error(
+          "MCP error during schema fetch",
+          original_message: e.message,
+        )
+      end
+
+      # Format MCP error message with contextual information
+      #
+      # @param prefix [String] Error message prefix
+      # @param original_message [String] Original error message from RubyLLM::MCP
+      # @param request_id [String, nil] MCP request ID (for timeout errors)
+      # @param code [Integer, nil] HTTP status code (for transport errors)
+      # @return [String] Formatted error message with full context
+      def format_mcp_error(prefix, original_message:, request_id: nil, code: nil)
+        parts = [prefix]
+        parts << "[server: #{@server_name}]"
+        parts << "[tool: #{@mcp_name}]"
+        parts << "[request_id: #{request_id}]" if request_id
+        parts << "[code: #{code}]" if code
+        parts << "- #{original_message}"
+        parts.join(" ")
       end
     end
   end

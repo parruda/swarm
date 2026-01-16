@@ -71,6 +71,15 @@ module SwarmSDK
   # Raised when agent turn exceeds turn_timeout
   class TurnTimeoutError < TimeoutError; end
 
+  # Base class for MCP-related errors (provides context about server/tool)
+  class MCPError < Error; end
+
+  # Raised when MCP request times out
+  class MCPTimeoutError < MCPError; end
+
+  # Raised when MCP transport fails (connection, HTTP errors)
+  class MCPTransportError < MCPError; end
+
   class << self
     # Get the global configuration instance
     #

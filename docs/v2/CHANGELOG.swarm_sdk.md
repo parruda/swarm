@@ -5,6 +5,17 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.7]
+
+### Improved
+
+- **MCP Error Messages with Context**: MCP errors now include detailed context for easier debugging
+  - **Error types**: `MCPTimeoutError`, `MCPTransportError`, `MCPError` (base class)
+  - **Context included**: Server name, tool name, request ID (for timeouts), HTTP code (for transport errors)
+  - **Example**: `MCP request timed out [server: codebase_server] [tool: search_code] [request_id: req_123] - Request timed out after 30 seconds`
+  - **Coverage**: Both tool execution (`execute`) and schema loading (`params_schema`) now wrap MCP errors
+  - **Files**: `lib/swarm_sdk.rb` (error classes), `lib/swarm_sdk/tools/mcp_tool_stub.rb`, `lib/swarm_sdk/swarm/mcp_configurator.rb`
+
 ## [2.7.6]
 
 - **MCP Server Initialization Events**: New events emitted during MCP server setup for monitoring and debugging

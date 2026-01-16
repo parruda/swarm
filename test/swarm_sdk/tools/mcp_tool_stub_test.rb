@@ -195,6 +195,177 @@ module SwarmSDK
 
         assert_kind_of(SwarmSDK::Tools::Base, stub)
       end
+
+      def test_stores_server_name
+        client = MockClient.new([])
+        stub = McpToolStub.new(
+          client: client,
+          name: "test_tool",
+          server_name: "my_mcp_server",
+        )
+
+        assert_equal("my_mcp_server", stub.server_name)
+      end
+
+      def test_server_name_defaults_to_unknown
+        client = MockClient.new([])
+        stub = McpToolStub.new(client: client, name: "test_tool")
+
+        assert_equal("unknown", stub.server_name)
+      end
+
+      # Mock client that raises MCP errors
+      class ErrorRaisingClient
+        attr_accessor :error_to_raise
+
+        def tool_info(_name)
+          raise @error_to_raise if @error_to_raise
+
+          nil
+        end
+
+        def call_tool(name:, arguments:)
+          raise @error_to_raise if @error_to_raise
+
+          "Result for #{name}"
+        end
+      end
+
+      def test_execute_wraps_timeout_error_with_context
+        client = ErrorRaisingClient.new
+        client.error_to_raise = RubyLLM::MCP::Errors::TimeoutError.new(
+          message: "Request timed out after 30 seconds",
+          request_id: "req_123",
+        )
+
+        stub = McpToolStub.new(
+          client: client,
+          name: "search_code",
+          server_name: "codebase_server",
+        )
+
+        error = assert_raises(SwarmSDK::MCPTimeoutError) do
+          stub.execute(query: "test")
+        end
+
+        assert_includes(error.message, "MCP request timed out")
+        assert_includes(error.message, "[server: codebase_server]")
+        assert_includes(error.message, "[tool: search_code]")
+        assert_includes(error.message, "[request_id: req_123]")
+        assert_includes(error.message, "Request timed out after 30 seconds")
+      end
+
+      def test_execute_wraps_transport_error_with_context
+        client = ErrorRaisingClient.new
+        client.error_to_raise = RubyLLM::MCP::Errors::TransportError.new(
+          message: "Connection refused",
+          code: 502,
+        )
+
+        stub = McpToolStub.new(
+          client: client,
+          name: "search_code",
+          server_name: "codebase_server",
+        )
+
+        error = assert_raises(SwarmSDK::MCPTransportError) do
+          stub.execute(query: "test")
+        end
+
+        assert_includes(error.message, "MCP transport error")
+        assert_includes(error.message, "[server: codebase_server]")
+        assert_includes(error.message, "[tool: search_code]")
+        assert_includes(error.message, "[code: 502]")
+        assert_includes(error.message, "Connection refused")
+      end
+
+      def test_execute_wraps_base_error_with_context
+        client = ErrorRaisingClient.new
+        client.error_to_raise = RubyLLM::MCP::Errors::BaseError.new(
+          message: "Unknown MCP error",
+        )
+
+        stub = McpToolStub.new(
+          client: client,
+          name: "search_code",
+          server_name: "codebase_server",
+        )
+
+        error = assert_raises(SwarmSDK::MCPError) do
+          stub.execute(query: "test")
+        end
+
+        assert_includes(error.message, "MCP error")
+        assert_includes(error.message, "[server: codebase_server]")
+        assert_includes(error.message, "[tool: search_code]")
+        assert_includes(error.message, "Unknown MCP error")
+      end
+
+      def test_schema_loading_wraps_timeout_error_with_context
+        client = ErrorRaisingClient.new
+        client.error_to_raise = RubyLLM::MCP::Errors::TimeoutError.new(
+          message: "Request timed out after 30 seconds",
+          request_id: "req_456",
+        )
+
+        stub = McpToolStub.new(
+          client: client,
+          name: "search_code",
+          server_name: "codebase_server",
+        )
+
+        error = assert_raises(SwarmSDK::MCPTimeoutError) do
+          stub.params_schema
+        end
+
+        assert_includes(error.message, "MCP schema fetch timed out")
+        assert_includes(error.message, "[server: codebase_server]")
+        assert_includes(error.message, "[tool: search_code]")
+        assert_includes(error.message, "[request_id: req_456]")
+      end
+
+      def test_schema_loading_wraps_transport_error_with_context
+        client = ErrorRaisingClient.new
+        client.error_to_raise = RubyLLM::MCP::Errors::TransportError.new(
+          message: "SSL handshake failed",
+          code: 0,
+        )
+
+        stub = McpToolStub.new(
+          client: client,
+          name: "search_code",
+          server_name: "codebase_server",
+        )
+
+        error = assert_raises(SwarmSDK::MCPTransportError) do
+          stub.params_schema
+        end
+
+        assert_includes(error.message, "MCP transport error during schema fetch")
+        assert_includes(error.message, "[server: codebase_server]")
+        assert_includes(error.message, "[code: 0]")
+      end
+
+      def test_schema_loading_wraps_base_error_with_context
+        client = ErrorRaisingClient.new
+        client.error_to_raise = RubyLLM::MCP::Errors::BaseError.new(
+          message: "Protocol error",
+        )
+
+        stub = McpToolStub.new(
+          client: client,
+          name: "search_code",
+          server_name: "codebase_server",
+        )
+
+        error = assert_raises(SwarmSDK::MCPError) do
+          stub.params_schema
+        end
+
+        assert_includes(error.message, "MCP error during schema fetch")
+        assert_includes(error.message, "[server: codebase_server]")
+        assert_includes(error.message, "Protocol error")
+      end
     end
   end
 end

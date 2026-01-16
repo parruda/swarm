@@ -82,6 +82,7 @@ module SwarmSDK
               stub = Tools::McpToolStub.new(
                 client: client,
                 name: tool_name.to_s,
+                server_name: server_config[:name],
               )
               chat.tool_registry.register(
                 stub,
