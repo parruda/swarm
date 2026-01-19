@@ -117,22 +117,123 @@ module SwarmSDK
       #
       # Agents that are ONLY delegates with shared_across_delegations: false
       # are NOT created here - they'll be created as delegation instances in pass 2a.
+      #
+      # Agent creation is parallelized using Async::Barrier for faster initialization.
       def pass_1_create_agents
         # Create plugin storages for agents
         create_plugin_storages
 
         tool_configurator = ToolConfigurator.new(@swarm, @swarm.scratchpad_storage, @swarm.plugin_storages)
 
-        @swarm.agent_definitions.each do |name, agent_definition|
-          # Skip if this agent will only exist as delegation instances
-          next if should_skip_primary_creation?(name, agent_definition)
+        # Filter agents that need primary creation
+        agents_to_create = @swarm.agent_definitions.reject do |name, agent_definition|
+          should_skip_primary_creation?(name, agent_definition)
+        end
 
-          chat = create_agent_chat(name, agent_definition, tool_configurator)
+        # Create agents in parallel using Async::Barrier
+        results = create_agents_in_parallel(agents_to_create, tool_configurator)
+
+        # Store results and notify plugins (sequential for safety)
+        results.each do |name, chat, agent_definition|
           @agents[name] = chat
-
-          # Notify plugins that agent was initialized
           notify_plugins_agent_initialized(name, chat, agent_definition, tool_configurator)
         end
+      end
+
+      # Create multiple agents in parallel using Async fibers
+      #
+      # @param agents_to_create [Hash] Hash of { name => agent_definition }
+      # @param tool_configurator [ToolConfigurator] Shared tool configurator
+      # @return [Array<Array>] Array of [name, chat, agent_definition] tuples
+      def create_agents_in_parallel(agents_to_create, tool_configurator)
+        return [] if agents_to_create.empty?
+
+        results = []
+        mutex = Mutex.new
+
+        Sync do
+          barrier = Async::Barrier.new
+
+          agents_to_create.each do |name, agent_definition|
+            barrier.async do
+              chat = create_agent_chat(name, agent_definition, tool_configurator)
+              mutex.synchronize { results << [name, chat, agent_definition] }
+            end
+          end
+
+          barrier.wait
+        end
+
+        results
+      end
+
+      # Collect all delegation instances that need to be created
+      #
+      # Validates delegation configs and returns a list of instances to create.
+      # This is done sequentially to fail fast on configuration errors.
+      #
+      # @return [Array<Hash>] Array of { instance_name:, base_name:, definition: }
+      def collect_delegation_instances_to_create
+        instances = []
+
+        @swarm.agent_definitions.each do |delegator_name, delegator_def|
+          delegator_def.delegation_configs.each do |delegation_config|
+            delegate_base_name = delegation_config[:agent]
+
+            # Validate delegate exists
+            unless @swarm.agent_definitions.key?(delegate_base_name)
+              raise ConfigurationError,
+                "Agent '#{delegator_name}' delegates to unknown agent '#{delegate_base_name}'"
+            end
+
+            delegate_definition = @swarm.agent_definitions[delegate_base_name]
+
+            # Skip if delegate wants to be shared (use primary instead)
+            next if delegate_definition.shared_across_delegations
+
+            instance_name = "#{delegate_base_name}@#{delegator_name}"
+
+            instances << {
+              instance_name: instance_name,
+              base_name: delegate_base_name,
+              definition: delegate_definition,
+            }
+          end
+        end
+
+        instances
+      end
+
+      # Create multiple delegation instances in parallel using Async fibers
+      #
+      # @param instances_to_create [Array<Hash>] Array of instance configs
+      # @param tool_configurator [ToolConfigurator] Shared tool configurator
+      # @return [Array<Array>] Array of [instance_name, chat] tuples
+      def create_delegation_instances_in_parallel(instances_to_create, tool_configurator)
+        return [] if instances_to_create.empty?
+
+        results = []
+        mutex = Mutex.new
+
+        Sync do
+          barrier = Async::Barrier.new
+
+          instances_to_create.each do |config|
+            barrier.async do
+              delegation_chat = create_agent_chat_for_delegation(
+                instance_name: config[:instance_name],
+                base_name: config[:base_name],
+                agent_definition: config[:definition],
+                tool_configurator: tool_configurator,
+              )
+              mutex.synchronize { results << [config[:instance_name], delegation_chat] }
+            end
+          end
+
+          barrier.wait
+        end
+
+        results
       end
 
       # Pass 2: Create delegation instances and wire delegation tools
@@ -141,39 +242,19 @@ module SwarmSDK
       # 2a. Create delegation instances (ONLY for agents with shared_across_delegations: false)
       # 2b. Wire primary agents to delegation instances OR shared primaries
       # 2c. Wire delegation instances to their delegates (nested delegation support)
+      #
+      # Sub-pass 2a is parallelized using Async::Barrier for faster initialization.
       def pass_2_register_delegation_tools
         tool_configurator = ToolConfigurator.new(@swarm, @swarm.scratchpad_storage, @swarm.plugin_storages)
 
-        # Sub-pass 2a: Create delegation instances for isolated agents
-        @swarm.agent_definitions.each do |delegator_name, delegator_def|
-          delegator_def.delegation_configs.each do |delegation_config|
-            delegate_base_name = delegation_config[:agent]
+        # Sub-pass 2a: Create delegation instances for isolated agents (parallelized)
+        delegation_instances_to_create = collect_delegation_instances_to_create
 
-            unless @swarm.agent_definitions.key?(delegate_base_name)
-              raise ConfigurationError,
-                "Agent '#{delegator_name}' delegates to unknown agent '#{delegate_base_name}'"
-            end
+        results = create_delegation_instances_in_parallel(delegation_instances_to_create, tool_configurator)
 
-            delegate_definition = @swarm.agent_definitions[delegate_base_name]
-
-            # Check isolation mode of the DELEGATE agent
-            # If delegate wants to be shared, skip instance creation (use primary)
-            next if delegate_definition.shared_across_delegations
-
-            # Create unique delegation instance (isolated mode)
-            instance_name = "#{delegate_base_name}@#{delegator_name}"
-
-            # V7.0: Use existing register_all_tools (no new method needed!)
-            delegation_chat = create_agent_chat_for_delegation(
-              instance_name: instance_name,
-              base_name: delegate_base_name,
-              agent_definition: delegate_definition,
-              tool_configurator: tool_configurator,
-            )
-
-            # Store in delegation_instances hash
-            @swarm.delegation_instances[instance_name] = delegation_chat
-          end
+        # Store results after all parallel creation completes
+        results.each do |instance_name, delegation_chat|
+          @swarm.delegation_instances[instance_name] = delegation_chat
         end
 
         # Sub-pass 2b: Wire primary agents to delegation instances OR shared primaries OR registered swarms
