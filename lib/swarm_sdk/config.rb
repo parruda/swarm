@@ -92,6 +92,7 @@ module SwarmSDK
       mcp_log_level: ["SWARM_SDK_MCP_LOG_LEVEL", -> { Defaults::Logging::MCP_LOG_LEVEL }],
       default_execution_timeout: ["SWARM_SDK_DEFAULT_EXECUTION_TIMEOUT", -> { Defaults::Timeouts::EXECUTION_TIMEOUT_SECONDS }],
       default_turn_timeout: ["SWARM_SDK_DEFAULT_TURN_TIMEOUT", -> { Defaults::Timeouts::TURN_TIMEOUT_SECONDS }],
+      mcp_request_timeout: ["SWARM_SDK_MCP_REQUEST_TIMEOUT", -> { Defaults::Timeouts::MCP_REQUEST_SECONDS }],
     }.freeze
 
     # WebFetch and control settings

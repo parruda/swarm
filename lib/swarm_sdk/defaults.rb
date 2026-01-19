@@ -94,6 +94,47 @@ module SwarmSDK
       # Time-to-live for cached response IDs. 5 minutes allows conversation
       # continuity while preventing stale cache issues.
       RESPONSES_API_TTL_SECONDS = 300
+
+      # MCP client request timeout (seconds)
+      #
+      # Default timeout for MCP server connections. 5 minutes accommodates
+      # long-running SSE streams and tool executions. This timeout applies to
+      # the entire operation (operation_timeout in HTTPX), so it must be long
+      # enough for SSE connections that may run for extended periods.
+      MCP_REQUEST_SECONDS = 300
+    end
+
+    # MCP reconnection configuration
+    #
+    # Settings for automatic reconnection when SSE/streamable connections drop.
+    # Note: The background SSE notification stream uses operation_timeout which
+    # limits total connection duration. Since this stream is meant to stay open
+    # indefinitely for server notifications, we configure aggressive reconnection
+    # so timeouts are transparent to users. Tool calls use separate connections
+    # and are unaffected by SSE stream timeouts.
+    module McpReconnection
+      # Maximum number of reconnection attempts
+      #
+      # Very high value (effectively infinite) because the SSE notification stream
+      # is expected to timeout periodically due to operation_timeout limitations.
+      # Reconnection is transparent - tool calls continue working regardless.
+      MAX_RETRIES = 1000
+
+      # Initial delay between reconnection attempts (milliseconds)
+      #
+      # Fast initial reconnect (500ms) to minimize notification gaps.
+      INITIAL_DELAY_MS = 500
+
+      # Exponential backoff growth factor
+      #
+      # Slow growth (1.2x) because we expect frequent reconnections.
+      # 500ms -> 600ms -> 720ms -> 864ms -> 1037ms -> ...
+      DELAY_GROW_FACTOR = 1.2
+
+      # Maximum delay between reconnection attempts (milliseconds)
+      #
+      # Caps at 10 seconds to ensure responsive reconnection even after many retries.
+      MAX_DELAY_MS = 10_000
     end
 
     # Output and content size limits

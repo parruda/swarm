@@ -216,9 +216,9 @@ module SwarmSDK
 
         result = middleware.instance_eval { parse_body(body) }
 
-        # Should truncate to 1000 chars
+        # Should return full string for non-JSON content (SSE, etc.)
         assert_instance_of(String, result)
-        assert_operator(result.length, :<=, 1001)
+        assert_equal(body.length, result.length)
       end
 
       def test_parse_body_with_invalid_data

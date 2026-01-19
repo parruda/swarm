@@ -130,7 +130,8 @@ module SwarmSDK
       # @return [RubyLLM::MCP::Client] Initialized MCP client
       def initialize_mcp_client(config)
         # Convert timeout from seconds to milliseconds
-        timeout_seconds = config[:timeout] || 30
+        # Use explicit config[:timeout] if provided, otherwise use global default
+        timeout_seconds = config[:timeout] || SwarmSDK.config.mcp_request_timeout
         timeout_ms = timeout_seconds * 1000
 
         # Determine transport type
@@ -179,11 +180,16 @@ module SwarmSDK
       # @param config [Hash] MCP server configuration
       # @return [Hash] SSE configuration
       def build_sse_config(config)
-        {
+        sse_config = {
           url: config[:url],
           headers: config[:headers] || {},
           version: config[:version]&.to_sym || :http2,
         }
+
+        # Add reconnection options for resilient SSE connections
+        sse_config[:reconnection] = build_reconnection_options(config)
+
+        sse_config
       end
 
       # Build streamable (HTTP) transport configuration
@@ -200,7 +206,28 @@ module SwarmSDK
         # Only include rate_limit if present
         streamable_config[:rate_limit] = config[:rate_limit] if config[:rate_limit]
 
+        # Add reconnection options for resilient streamable connections
+        streamable_config[:reconnection] = build_reconnection_options(config)
+
         streamable_config
+      end
+
+      # Build reconnection options from config or defaults
+      #
+      # Provides exponential backoff reconnection for SSE/streamable transports.
+      # Can be customized per-server or uses global defaults.
+      #
+      # @param config [Hash] MCP server configuration
+      # @return [Hash] Reconnection options
+      def build_reconnection_options(config)
+        reconnection_config = config[:reconnection] || {}
+
+        {
+          max_retries: reconnection_config[:max_retries] || Defaults::McpReconnection::MAX_RETRIES,
+          initial_reconnection_delay: reconnection_config[:initial_delay] || Defaults::McpReconnection::INITIAL_DELAY_MS,
+          reconnection_delay_grow_factor: reconnection_config[:delay_grow_factor] || Defaults::McpReconnection::DELAY_GROW_FACTOR,
+          max_reconnection_delay: reconnection_config[:max_delay] || Defaults::McpReconnection::MAX_DELAY_MS,
+        }
       end
 
       # Emit MCP server initialization start event

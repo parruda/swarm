@@ -52,23 +52,23 @@ module SwarmSDK
         # Execute request
         @app.call(env).on_complete do |response_env|
           end_time = Time.now
-          duration = end_time - start_time
+
+          # Determine if this was a streaming request based on whether chunks were accumulated
+          # This is more reliable than parsing response content
+          is_streaming = accumulated_raw_chunks.any?
 
           # For streaming: use accumulated raw SSE chunks
           # For non-streaming: use response body
-          raw_body = if accumulated_raw_chunks.any?
-            accumulated_raw_chunks.join
-          else
-            response_env.body
-          end
+          raw_body = is_streaming ? accumulated_raw_chunks.join : response_env.body
 
           # Store SSE body in Fiber-local for citation extraction
           # This allows append_citations_to_content to access the full SSE body
           # even though response.body is empty for streaming responses
-          Fiber[:last_sse_body] = raw_body if accumulated_raw_chunks.any?
+          Fiber[:last_sse_body] = raw_body if is_streaming
 
           # Emit response event
-          emit_response_event(response_env, start_time, end_time, duration, raw_body)
+          timing = { start_time: start_time, end_time: end_time, duration: end_time - start_time }
+          emit_response_event(response_env, timing, raw_body, is_streaming)
         end
       end
 
@@ -96,21 +96,17 @@ module SwarmSDK
       # Emit response event
       #
       # @param env [Faraday::Env] Response environment
-      # @param start_time [Time] Request start time
-      # @param end_time [Time] Request end time
-      # @param duration [Float] Request duration in seconds
+      # @param timing [Hash] Timing information with :start_time, :end_time, :duration keys
       # @param raw_body [String, nil] Raw response body (SSE stream for streaming, JSON for non-streaming)
+      # @param streaming [Boolean] Whether this was a streaming response (determined by chunk accumulation)
       # @return [void]
-      def emit_response_event(env, start_time, end_time, duration, raw_body)
-        # Detect if this is a streaming response (starts with "data:")
-        streaming = raw_body.is_a?(String) && raw_body.start_with?("data:")
-
+      def emit_response_event(env, timing, raw_body, streaming)
         response_data = {
           provider: @provider_name,
           body: parse_body(raw_body),
           streaming: streaming,
-          duration_seconds: duration.round(3),
-          timestamp: end_time.utc.iso8601,
+          duration_seconds: timing[:duration].round(3),
+          timestamp: timing[:end_time].utc.iso8601,
           status: env.status,
         }
 
@@ -166,6 +162,9 @@ module SwarmSDK
 
       # Parse request/response body
       #
+      # For requests: returns parsed JSON hash
+      # For responses: returns full body (JSON parsed or raw string for SSE)
+      #
       # @param body [String, Hash, nil] HTTP body
       # @return [Hash, String, nil] Parsed body
       def parse_body(body)
@@ -177,8 +176,9 @@ module SwarmSDK
         # Try to parse JSON
         JSON.parse(body)
       rescue JSON::ParserError
-        # Return truncated string if not JSON
-        body.to_s[0..1000]
+        # Return full body for SSE/non-JSON responses
+        # Don't truncate - let consumers decide how to handle large bodies
+        body.to_s
       rescue StandardError
         nil
       end
