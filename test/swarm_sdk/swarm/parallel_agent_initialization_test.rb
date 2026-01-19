@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "async"
+require "logger"
 
 module SwarmSDK
   class Swarm
@@ -107,7 +108,51 @@ module SwarmSDK
           swarm.agent(:lead)
         end
 
+        # Error message includes agent name and original error
+        assert_match(/Agent 'lead' initialization failed/, error.message)
         assert_match(/NonExistentTool/, error.message)
+      end
+
+      # Test that multiple initialization errors emit events and raise first error
+      def test_parallel_initialization_emits_events_for_multiple_errors
+        swarm = SwarmSDK::Swarm.new(name: "Multi Error Swarm", scratchpad: @test_scratchpad)
+
+        # Create multiple agents with invalid tools
+        swarm.add_agent(create_agent(name: :agent1, tools: [:InvalidTool1]))
+        swarm.add_agent(create_agent(name: :agent2, tools: [:InvalidTool2]))
+        swarm.add_agent(create_agent(name: :agent3, tools: [:InvalidTool3]))
+        swarm.lead = :agent1
+
+        # Setup event collection
+        events = []
+        Fiber[:log_subscriptions] = []
+        SwarmSDK::LogCollector.subscribe { |event| events << event }
+        SwarmSDK::LogStream.emitter = SwarmSDK::LogCollector
+
+        # Should raise first error encountered
+        error = assert_raises(SwarmSDK::ConfigurationError) do
+          swarm.agent(:agent1)
+        end
+
+        # Error should mention agent initialization failure
+        assert_match(/Agent '.*' initialization failed/, error.message)
+        assert_match(/InvalidTool/, error.message)
+
+        # All three errors should be emitted as events
+        error_events = events.select { |e| e[:type] == "agent_initialization_error" }
+
+        assert_equal(3, error_events.size, "Should emit event for each failed agent")
+
+        # Verify events have correct structure
+        error_events.each do |event|
+          assert(event[:agent])
+          assert_equal("SwarmSDK::ConfigurationError", event[:error_class])
+          assert_match(/InvalidTool/, event[:error_message])
+        end
+      ensure
+        # Cleanup
+        SwarmSDK::LogStream.emitter = nil
+        Fiber[:log_subscriptions] = nil
       end
 
       # Test that invalid delegation target raises error

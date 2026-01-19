@@ -149,6 +149,7 @@ module SwarmSDK
         return [] if agents_to_create.empty?
 
         results = []
+        errors = []
         mutex = Mutex.new
 
         Sync do
@@ -158,10 +159,31 @@ module SwarmSDK
             barrier.async do
               chat = create_agent_chat(name, agent_definition, tool_configurator)
               mutex.synchronize { results << [name, chat, agent_definition] }
+            rescue StandardError => e
+              # Catch errors to avoid Async warning logs (which fail in tests with StringIO)
+              mutex.synchronize { errors << [name, e] }
             end
           end
 
           barrier.wait
+        end
+
+        # Re-raise first error if any occurred
+        unless errors.empty?
+          # Emit events for all errors (not just the first)
+          errors.each do |agent_name, err|
+            LogStream.emit(
+              type: "agent_initialization_error",
+              agent: agent_name,
+              error_class: err.class.name,
+              error_message: err.message,
+              timestamp: Time.now.utc.iso8601,
+            )
+          end
+
+          # Re-raise first error with context
+          name, error = errors.first
+          raise error.class, "Agent '#{name}' initialization failed: #{error.message}", error.backtrace
         end
 
         results
@@ -213,6 +235,7 @@ module SwarmSDK
         return [] if instances_to_create.empty?
 
         results = []
+        errors = []
         mutex = Mutex.new
 
         Sync do
@@ -227,10 +250,31 @@ module SwarmSDK
                 tool_configurator: tool_configurator,
               )
               mutex.synchronize { results << [config[:instance_name], delegation_chat] }
+            rescue StandardError => e
+              # Catch errors to avoid Async warning logs (which fail in tests with StringIO)
+              mutex.synchronize { errors << [config[:instance_name], e] }
             end
           end
 
           barrier.wait
+        end
+
+        # Re-raise first error if any occurred
+        unless errors.empty?
+          # Emit events for all errors (not just the first)
+          errors.each do |inst_name, err|
+            LogStream.emit(
+              type: "delegation_instance_initialization_error",
+              instance_name: inst_name,
+              error_class: err.class.name,
+              error_message: err.message,
+              timestamp: Time.now.utc.iso8601,
+            )
+          end
+
+          # Re-raise first error with context
+          instance_name, error = errors.first
+          raise error.class, "Delegation instance '#{instance_name}' initialization failed: #{error.message}", error.backtrace
         end
 
         results
