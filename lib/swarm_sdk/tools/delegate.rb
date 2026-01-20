@@ -37,7 +37,7 @@ module SwarmSDK
         end
       end
 
-      attr_reader :delegate_name, :delegate_target, :tool_name, :preserve_context
+      attr_reader :delegate_name, :delegate_target, :tool_name, :preserve_context, :delegate_chat
 
       # Initialize a delegation tool
       #
@@ -92,6 +92,32 @@ module SwarmSDK
       # Override name to return custom delegation tool name
       def name
         @tool_name
+      end
+
+      # Check if this delegate uses lazy loading
+      #
+      # @return [Boolean] True if delegate is lazy-loaded
+      def lazy?
+        @delegate_chat.is_a?(Swarm::LazyDelegateChat)
+      end
+
+      # Check if this delegate has been initialized
+      #
+      # @return [Boolean] True if delegate chat is ready (either eager or lazy-initialized)
+      def initialized?
+        return true unless lazy?
+
+        @delegate_chat.initialized?
+      end
+
+      # Force initialization of lazy delegate
+      #
+      # If the delegate is lazy-loaded, this will trigger immediate initialization.
+      # For eager delegates, this is a no-op.
+      #
+      # @return [Agent::Chat] The resolved chat instance
+      def initialize_delegate!
+        resolve_delegate_chat
       end
 
       # Execute delegation with pre/post hooks
@@ -226,6 +252,9 @@ module SwarmSDK
 
       # Delegate to an agent
       #
+      # Handles both eager Agent::Chat instances and lazy-loaded delegates.
+      # LazyDelegateChat instances are initialized on first access.
+      #
       # @param message [String] Message to send to the agent
       # @param call_stack [Array] Delegation call stack for circular dependency detection
       # @param reset_context [Boolean] Whether to reset the agent's conversation history before delegation
@@ -234,15 +263,32 @@ module SwarmSDK
         # Push delegate target onto call stack to track delegation chain
         call_stack.push(@delegate_target)
         begin
+          # Resolve the chat instance (handles lazy loading)
+          chat = resolve_delegate_chat
+
           # Clear conversation if reset_context is true OR if preserve_context is false
           # reset_context takes precedence as it's an explicit request
-          @delegate_chat.clear_conversation if reset_context || !@preserve_context
+          chat.clear_conversation if reset_context || !@preserve_context
 
-          response = @delegate_chat.ask(message, source: "delegation")
+          response = chat.ask(message, source: "delegation")
           response.content
         ensure
           # Always pop from stack, even if delegation fails
           call_stack.pop
+        end
+      end
+
+      # Resolve the delegate chat instance
+      #
+      # If the delegate is a LazyDelegateChat, initializes it on first access.
+      # Otherwise, returns the chat directly.
+      #
+      # @return [Agent::Chat] The resolved chat instance
+      def resolve_delegate_chat
+        if @delegate_chat.is_a?(Swarm::LazyDelegateChat)
+          @delegate_chat.chat
+        else
+          @delegate_chat
         end
       end
 

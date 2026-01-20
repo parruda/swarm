@@ -581,6 +581,61 @@ module SwarmSDK
     # @return [void]
     attr_writer :swarm_registry
 
+    # Force initialization of all lazy delegation instances
+    #
+    # By default, delegation instances for isolated delegates are lazy-loaded
+    # (created on first delegation call). This method forces immediate initialization
+    # of all lazy delegates, which can be useful for:
+    # - Testing: Verify delegation instance properties without mocking
+    # - Preloading: Initialize all agents upfront for predictable timing
+    #
+    # This method is recursive - it will initialize nested lazy delegates until
+    # all delegation chains are fully initialized.
+    #
+    # @return [void]
+    #
+    # @example Force-initialize all delegates for testing
+    #   swarm.initialize_agents
+    #   swarm.initialize_lazy_delegates!
+    #   assert swarm.delegation_instances.key?("backend@lead")
+    def initialize_lazy_delegates!
+      initialize_agents unless @agents_initialized
+
+      # Keep initializing until no more lazy delegates are found
+      # This handles nested delegation chains (A -> B -> C)
+      loop do
+        initialized_any = false
+
+        # Find all delegation tools with lazy loaders in primary agents
+        @agents.each_value do |chat|
+          chat.tools.each_value do |tool|
+            next unless tool.is_a?(Tools::Delegate)
+            next unless tool.lazy? && !tool.initialized?
+
+            tool.initialize_delegate!
+            initialized_any = true
+          end
+        end
+
+        # Also check delegation instances for their own lazy delegates (nested)
+        @delegation_instances.values.each do |chat|
+          # Skip if this is still a LazyDelegateChat (shouldn't happen after above loop)
+          next if chat.is_a?(Swarm::LazyDelegateChat)
+
+          chat.tools.each_value do |tool|
+            next unless tool.is_a?(Tools::Delegate)
+            next unless tool.lazy? && !tool.initialized?
+
+            tool.initialize_delegate!
+            initialized_any = true
+          end
+        end
+
+        # Exit loop when no more lazy delegates were initialized
+        break unless initialized_any
+      end
+    end
+
     # --- Internal API (for Executor use only) ---
     # Hook triggers for swarm lifecycle events are provided by HookTriggers module
 

@@ -64,6 +64,9 @@ module SwarmSDK
         # Trigger initialization
         swarm.agent(:lead)
 
+        # Force initialization of lazy delegates
+        swarm.initialize_lazy_delegates!
+
         # Delegation instances should be created for isolated delegates
         # (default is shared_across_delegations: false)
         delegation_instances = swarm.delegation_instances
@@ -169,7 +172,7 @@ module SwarmSDK
           swarm.agent(:lead)
         end
 
-        assert_match(/unknown agent 'nonexistent_agent'/, error.message)
+        assert_match(/unknown target 'nonexistent_agent'/, error.message)
       end
 
       # Test that parallel initialization doesn't lose any agents
@@ -208,6 +211,9 @@ module SwarmSDK
         # Trigger initialization
         swarm.agent(:lead)
 
+        # Force initialization of lazy delegates
+        swarm.initialize_lazy_delegates!
+
         # Delegation instances should be created
         delegation_instances = swarm.delegation_instances
 
@@ -234,6 +240,9 @@ module SwarmSDK
 
         # Trigger initialization
         swarm.agent(:lead)
+
+        # Force initialization of lazy delegates
+        swarm.initialize_lazy_delegates!
 
         # Shared worker should be a primary agent
         assert(swarm.agent(:shared_worker))
@@ -308,6 +317,9 @@ module SwarmSDK
 
         # Trigger initialization
         swarm.agent(:lead)
+
+        # Force initialization of lazy delegates
+        swarm.initialize_lazy_delegates!
 
         # Verify delegation instances exist
         refute_predicate(swarm.delegation_instances, :empty?, "Should have delegation instances")

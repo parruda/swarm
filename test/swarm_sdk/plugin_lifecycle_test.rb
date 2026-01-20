@@ -176,7 +176,7 @@ module SwarmSDK
         swarm.execute("Test prompt")
       end
 
-      assert_match(/unknown agent/, error.message)
+      assert_match(/unknown target/, error.message)
 
       # on_swarm_started/stopped should NOT be called since swarm never started
       # ConfigurationError is raised during agent initialization phase

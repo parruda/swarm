@@ -5,6 +5,23 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.10]
+
+### Added
+
+- **Lazy Loading for Delegation Agents**: Delegation instances are now lazily initialized on first use
+  - **Performance improvement**: Agents are only created when their delegation is first called, not at swarm startup
+  - **New class**: `LazyDelegateChat` - Thread-safe wrapper that defers agent creation until first use
+  - **New events**: `agent_lazy_initialization_start` and `agent_lazy_initialization_complete` for monitoring
+  - **New Delegate tool methods**:
+    - `lazy?` - Returns true if using lazy loading
+    - `initialized?` - Returns true if the delegate has been initialized
+    - `initialize_delegate!` - Forces initialization
+  - **New Swarm method**: `initialize_lazy_delegates!` - Forces initialization of all lazy delegates (useful for testing or preloading)
+  - **Nested delegation support**: Cascading lazy initialization for delegation chains (A → B → C)
+  - **Shared delegates unchanged**: Delegates with `shared_across_delegations: true` still use immediate initialization
+  - **Files**: `lib/swarm_sdk/swarm/lazy_delegate_chat.rb`, `lib/swarm_sdk/swarm/agent_initializer.rb`, `lib/swarm_sdk/tools/delegate.rb`, `lib/swarm_sdk/swarm.rb`
+
 ## [2.7.9]
 - Updated models.json
 

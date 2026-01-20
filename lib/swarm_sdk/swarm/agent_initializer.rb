@@ -189,119 +189,18 @@ module SwarmSDK
         results
       end
 
-      # Collect all delegation instances that need to be created
+      # Pass 2: Wire delegation tools (lazy loading for isolated delegates)
       #
-      # Validates delegation configs and returns a list of instances to create.
-      # This is done sequentially to fail fast on configuration errors.
+      # This pass wires delegation tools for primary agents:
+      # - Shared delegates use the primary agent instance
+      # - Isolated delegates use LazyDelegateChat (created on first use)
       #
-      # @return [Array<Hash>] Array of { instance_name:, base_name:, definition: }
-      def collect_delegation_instances_to_create
-        instances = []
-
-        @swarm.agent_definitions.each do |delegator_name, delegator_def|
-          delegator_def.delegation_configs.each do |delegation_config|
-            delegate_base_name = delegation_config[:agent]
-
-            # Validate delegate exists
-            unless @swarm.agent_definitions.key?(delegate_base_name)
-              raise ConfigurationError,
-                "Agent '#{delegator_name}' delegates to unknown agent '#{delegate_base_name}'"
-            end
-
-            delegate_definition = @swarm.agent_definitions[delegate_base_name]
-
-            # Skip if delegate wants to be shared (use primary instead)
-            next if delegate_definition.shared_across_delegations
-
-            instance_name = "#{delegate_base_name}@#{delegator_name}"
-
-            instances << {
-              instance_name: instance_name,
-              base_name: delegate_base_name,
-              definition: delegate_definition,
-            }
-          end
-        end
-
-        instances
-      end
-
-      # Create multiple delegation instances in parallel using Async fibers
-      #
-      # @param instances_to_create [Array<Hash>] Array of instance configs
-      # @param tool_configurator [ToolConfigurator] Shared tool configurator
-      # @return [Array<Array>] Array of [instance_name, chat] tuples
-      def create_delegation_instances_in_parallel(instances_to_create, tool_configurator)
-        return [] if instances_to_create.empty?
-
-        results = []
-        errors = []
-        mutex = Mutex.new
-
-        Sync do
-          barrier = Async::Barrier.new
-
-          instances_to_create.each do |config|
-            barrier.async do
-              delegation_chat = create_agent_chat_for_delegation(
-                instance_name: config[:instance_name],
-                base_name: config[:base_name],
-                agent_definition: config[:definition],
-                tool_configurator: tool_configurator,
-              )
-              mutex.synchronize { results << [config[:instance_name], delegation_chat] }
-            rescue StandardError => e
-              # Catch errors to avoid Async warning logs (which fail in tests with StringIO)
-              mutex.synchronize { errors << [config[:instance_name], e] }
-            end
-          end
-
-          barrier.wait
-        end
-
-        # Re-raise first error if any occurred
-        unless errors.empty?
-          # Emit events for all errors (not just the first)
-          errors.each do |inst_name, err|
-            LogStream.emit(
-              type: "delegation_instance_initialization_error",
-              instance_name: inst_name,
-              error_class: err.class.name,
-              error_message: err.message,
-              timestamp: Time.now.utc.iso8601,
-            )
-          end
-
-          # Re-raise first error with context
-          instance_name, error = errors.first
-          raise error.class, "Delegation instance '#{instance_name}' initialization failed: #{error.message}", error.backtrace
-        end
-
-        results
-      end
-
-      # Pass 2: Create delegation instances and wire delegation tools
-      #
-      # This pass has three sub-steps that must happen in order:
-      # 2a. Create delegation instances (ONLY for agents with shared_across_delegations: false)
-      # 2b. Wire primary agents to delegation instances OR shared primaries
-      # 2c. Wire delegation instances to their delegates (nested delegation support)
-      #
-      # Sub-pass 2a is parallelized using Async::Barrier for faster initialization.
+      # Sub-pass 2a (eager creation) is REMOVED - delegation instances are now lazy.
+      # Sub-pass 2c (nested delegation) is handled by LazyDelegateChat when initialized.
       def pass_2_register_delegation_tools
         tool_configurator = ToolConfigurator.new(@swarm, @swarm.scratchpad_storage, @swarm.plugin_storages)
 
-        # Sub-pass 2a: Create delegation instances for isolated agents (parallelized)
-        delegation_instances_to_create = collect_delegation_instances_to_create
-
-        results = create_delegation_instances_in_parallel(delegation_instances_to_create, tool_configurator)
-
-        # Store results after all parallel creation completes
-        results.each do |instance_name, delegation_chat|
-          @swarm.delegation_instances[instance_name] = delegation_chat
-        end
-
-        # Sub-pass 2b: Wire primary agents to delegation instances OR shared primaries OR registered swarms
+        # Wire primary agents to delegates (shared primaries or lazy loaders)
         @swarm.agent_definitions.each do |delegator_name, delegator_def|
           delegator_chat = @agents[delegator_name]
 
@@ -314,43 +213,25 @@ module SwarmSDK
               delegator_chat: delegator_chat,
               delegation_config: delegation_config,
               tool_configurator: tool_configurator,
-              create_nested_instances: false,
             )
           end
         end
 
-        # Sub-pass 2c: Wire delegation instances to their delegates (nested delegation)
-        # Convert to array first to avoid "can't add key during iteration" error
-        @swarm.delegation_instances.to_a.each do |instance_name, delegation_chat|
-          base_name = extract_base_name(instance_name)
-          delegate_definition = @swarm.agent_definitions[base_name]
-
-          # Register delegation tools for THIS instance's delegates_to
-          delegate_definition.delegation_configs.each do |delegation_config|
-            wire_delegation(
-              delegator_name: instance_name.to_sym,
-              delegator_chat: delegation_chat,
-              delegation_config: delegation_config,
-              tool_configurator: tool_configurator,
-              create_nested_instances: true,
-            )
-          end
-        end
+        # NOTE: Nested delegation wiring is now handled by LazyDelegateChat#wire_delegation_tools
+        # when the lazy delegate is first accessed.
       end
 
-      # Wire a single delegation from one agent/instance to a delegate
+      # Wire a single delegation from one agent to a delegate
       #
-      # This is the unified logic for delegation wiring used by both:
-      # - Sub-pass 2b: Primary agents → delegates
-      # - Sub-pass 2c: Delegation instances → nested delegates
+      # For isolated delegates, creates a LazyDelegateChat wrapper instead of
+      # eagerly creating the chat instance.
       #
       # @param delegator_name [Symbol, String] Name of the agent doing the delegating
       # @param delegator_chat [Agent::Chat] Chat instance of the delegator
       # @param delegation_config [Hash] Delegation configuration with :agent, :tool_name, and :preserve_context keys
       # @param tool_configurator [ToolConfigurator] Tool configuration helper
-      # @param create_nested_instances [Boolean] Whether to create new instances for nested delegation
       # @return [void]
-      def wire_delegation(delegator_name:, delegator_chat:, delegation_config:, tool_configurator:, create_nested_instances:)
+      def wire_delegation(delegator_name:, delegator_chat:, delegation_config:, tool_configurator:)
         delegate_name_sym = delegation_config[:agent]
         delegate_name_str = delegate_name_sym.to_s
         custom_tool_name = delegation_config[:tool_name]
@@ -365,8 +246,6 @@ module SwarmSDK
             delegator_chat: delegator_chat,
             delegate_name_sym: delegate_name_sym,
             custom_tool_name: custom_tool_name,
-            tool_configurator: tool_configurator,
-            create_nested_instances: create_nested_instances,
             preserve_context: preserve_context,
           )
         else
@@ -404,18 +283,17 @@ module SwarmSDK
 
       # Wire delegation to a local agent
       #
-      # Determines whether to use shared primary or isolated instance based on
-      # the delegate's shared_across_delegations setting.
+      # For shared delegates, uses the primary agent instance.
+      # For isolated delegates, creates a LazyDelegateChat wrapper that
+      # defers creation until first use.
       #
       # @param delegator_name [Symbol, String] Name of the delegating agent
       # @param delegator_chat [Agent::Chat] Chat instance of the delegator
       # @param delegate_name_sym [Symbol] Name of the delegate agent
       # @param custom_tool_name [String, nil] Optional custom tool name
-      # @param tool_configurator [ToolConfigurator] Tool configuration helper
-      # @param create_nested_instances [Boolean] Whether to create new instances if not found
       # @param preserve_context [Boolean] Whether to preserve context between delegations
       # @return [void]
-      def wire_agent_delegation(delegator_name:, delegator_chat:, delegate_name_sym:, custom_tool_name:, tool_configurator:, create_nested_instances:, preserve_context:)
+      def wire_agent_delegation(delegator_name:, delegator_chat:, delegate_name_sym:, custom_tool_name:, preserve_context:)
         delegate_definition = @swarm.agent_definitions[delegate_name_sym]
 
         # Determine which chat instance to use
@@ -423,24 +301,18 @@ module SwarmSDK
           # Shared mode: use primary agent (semaphore-protected)
           @agents[delegate_name_sym]
         else
-          # Isolated mode: use delegation instance
+          # Isolated mode: use lazy loader (created on first delegation)
           instance_name = "#{delegate_name_sym}@#{delegator_name}"
 
-          if create_nested_instances
-            # For nested delegation: create if not exists
-            @swarm.delegation_instances[instance_name] ||= create_agent_chat_for_delegation(
-              instance_name: instance_name,
-              base_name: delegate_name_sym,
-              agent_definition: delegate_definition,
-              tool_configurator: tool_configurator,
-            )
-          else
-            # For primary delegation: instance was pre-created in 2a
-            @swarm.delegation_instances[instance_name]
-          end
+          LazyDelegateChat.new(
+            instance_name: instance_name,
+            base_name: delegate_name_sym,
+            agent_definition: delegate_definition,
+            swarm: @swarm,
+          )
         end
 
-        # Create delegation tool pointing to chosen instance
+        # Create delegation tool pointing to chosen instance (or lazy loader)
         tool = create_delegation_tool(
           name: delegate_name_sym.to_s,
           description: delegate_definition.description,
@@ -467,17 +339,14 @@ module SwarmSDK
       #
       # Create Agent::Context for each agent to track delegations and metadata.
       # This is needed regardless of whether logging is enabled.
+      #
+      # NOTE: Delegation instances are now lazy-loaded, so their contexts are
+      # set up in LazyDelegateChat#setup_context when first accessed.
       def pass_3_setup_contexts
-        # Setup contexts for PRIMARY agents
+        # Setup contexts for PRIMARY agents only
+        # (Delegation instances handle their own context setup via LazyDelegateChat)
         @agents.each do |agent_name, chat|
           setup_agent_context(agent_name, @swarm.agent_definitions[agent_name], chat, is_delegation: false)
-        end
-
-        # Setup contexts for DELEGATION instances
-        @swarm.delegation_instances.each do |instance_name, chat|
-          base_name = extract_base_name(instance_name)
-          agent_definition = @swarm.agent_definitions[base_name]
-          setup_agent_context(instance_name.to_sym, agent_definition, chat, is_delegation: true)
         end
       end
 
@@ -541,15 +410,14 @@ module SwarmSDK
       # Pass 4: Configure hook system
       #
       # Setup the callback system for each agent, integrating with RubyLLM callbacks.
+      #
+      # NOTE: Delegation instances are now lazy-loaded, so their hooks are
+      # configured in LazyDelegateChat#configure_hooks when first accessed.
       def pass_4_configure_hooks
-        # Configure hooks for PRIMARY agents
+        # Configure hooks for PRIMARY agents only
+        # (Delegation instances handle their own hook setup via LazyDelegateChat)
         @agents.each do |agent_name, chat|
           configure_hooks_for_agent(agent_name, chat)
-        end
-
-        # Configure hooks for DELEGATION instances
-        @swarm.delegation_instances.each do |instance_name, chat|
-          configure_hooks_for_agent(instance_name.to_sym, chat)
         end
       end
 
@@ -569,17 +437,16 @@ module SwarmSDK
       #
       # If the swarm was loaded from YAML with agent-specific hooks,
       # apply them now via HooksAdapter.
+      #
+      # NOTE: Delegation instances are now lazy-loaded, so their YAML hooks are
+      # applied in LazyDelegateChat#apply_yaml_hooks when first accessed.
       def pass_5_apply_yaml_hooks
         return unless @swarm.config_for_hooks
 
-        # Apply YAML hooks to PRIMARY agents
+        # Apply YAML hooks to PRIMARY agents only
+        # (Delegation instances handle their own YAML hooks via LazyDelegateChat)
         @agents.each do |agent_name, chat|
           apply_yaml_hooks_for_agent(agent_name, chat)
-        end
-
-        # Apply YAML hooks to DELEGATION instances
-        @swarm.delegation_instances.each do |instance_name, chat|
-          apply_yaml_hooks_for_agent(instance_name.to_sym, chat)
         end
       end
 
@@ -603,13 +470,14 @@ module SwarmSDK
       # - Tools must be activated AFTER all registration is complete
       # - This populates @llm_chat.tools from the registry
       #
+      # NOTE: Delegation instances are now lazy-loaded, so their tools are
+      # activated in LazyDelegateChat#initialize_chat when first accessed.
+      #
       # @return [void]
       def pass_6_activate_tools
-        # Activate tools for PRIMARY agents
+        # Activate tools for PRIMARY agents only
+        # (Delegation instances handle their own tool activation via LazyDelegateChat)
         @agents.each_value(&:activate_tools_for_prompt)
-
-        # Activate tools for DELEGATION instances
-        @swarm.delegation_instances.each_value(&:activate_tools_for_prompt)
       end
 
       # Create Agent::Chat instance with rate limiting
@@ -653,103 +521,8 @@ module SwarmSDK
         chat
       end
 
-      # Create a delegation-specific instance of an agent
-      #
-      # V7.0: Simplified - just calls register_all_tools with instance_name
-      #
-      # @param instance_name [String] Unique instance name ("base@delegator")
-      # @param base_name [Symbol] Base agent name (for definition lookup)
-      # @param agent_definition [Agent::Definition] Base agent definition
-      # @param tool_configurator [ToolConfigurator] Shared tool configurator
-      # @return [Agent::Chat] Delegation-specific chat instance
-      def create_agent_chat_for_delegation(instance_name:, base_name:, agent_definition:, tool_configurator:)
-        # Create chat with instance_name for isolated conversation + tool state
-        chat = Agent::Chat.new(
-          definition: agent_definition.to_h,
-          agent_name: instance_name.to_sym, # Full instance name for isolation
-          global_semaphore: @swarm.global_semaphore,
-        )
-
-        # Set provider agent name for logging
-        chat.provider.agent_name = instance_name if chat.provider.respond_to?(:agent_name=)
-
-        # V7.0 SIMPLIFIED: Just call register_all_tools with instance_name!
-        # Base name extraction happens automatically in create_plugin_tool
-        tool_configurator.register_all_tools(
-          chat: chat,
-          agent_name: instance_name.to_sym,
-          agent_definition: agent_definition,
-        )
-
-        # Register MCP servers (tracked by instance_name automatically)
-        if agent_definition.mcp_servers.any?
-          mcp_configurator = McpConfigurator.new(@swarm)
-          mcp_configurator.register_mcp_servers(
-            chat,
-            agent_definition.mcp_servers,
-            agent_name: instance_name,
-          )
-        end
-
-        # Setup tool activation dependencies (Plan 025)
-        chat.setup_tool_activation(
-          tool_configurator: tool_configurator,
-          agent_definition: agent_definition,
-        )
-
-        # Notify plugins (use instance_name, plugins extract base_name if needed)
-        notify_plugins_agent_initialized(instance_name.to_sym, chat, agent_definition, tool_configurator)
-
-        # NOTE: activate_tools_for_prompt is called in Pass 6 after all plugins
-
-        chat
-      end
-
-      # Register agent delegation tools
-      #
-      # Creates delegation tools that allow one agent to call another.
-      #
-      # @param chat [Agent::Chat] The chat instance
-      # @param delegate_names [Array<Symbol>] Names of agents to delegate to
-      # @param agent_name [Symbol] Name of the agent doing the delegating
-      def register_delegation_tools(chat, delegate_names, agent_name:)
-        return if delegate_names.empty?
-
-        delegate_names.each do |delegate_name|
-          delegate_name_sym = delegate_name.to_sym
-          delegate_name_str = delegate_name.to_s
-
-          # Check if target is a local agent
-          if @agents.key?(delegate_name_sym)
-            # Delegate to local agent
-            delegate_agent = @agents[delegate_name_sym]
-            delegate_definition = @swarm.agent_definitions[delegate_name_sym]
-
-            tool = create_delegation_tool(
-              name: delegate_name_str,
-              description: delegate_definition.description,
-              delegate_chat: delegate_agent,
-              agent_name: agent_name,
-              delegating_chat: chat,
-            )
-
-            chat.add_tool(tool)
-          elsif @swarm.swarm_registry&.registered?(delegate_name_str)
-            # Delegate to registered swarm
-            tool = create_delegation_tool(
-              name: delegate_name_str,
-              description: "External swarm: #{delegate_name_str}",
-              delegate_chat: nil, # Swarm delegation - no direct chat
-              agent_name: agent_name,
-              delegating_chat: chat,
-            )
-
-            chat.add_tool(tool)
-          else
-            raise ConfigurationError, "Agent '#{agent_name}' delegates to unknown target '#{delegate_name_str}' (not a local agent or registered swarm)"
-          end
-        end
-      end
+      # NOTE: create_agent_chat_for_delegation and register_delegation_tools were removed.
+      # Delegation instances are now lazy-loaded via LazyDelegateChat.
 
       # Create plugin storages for all agents
       #

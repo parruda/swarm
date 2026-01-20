@@ -479,7 +479,7 @@ module SwarmSDK
         swarm.agent(swarm.agent_names.first)
       end
 
-      assert_match(/unknown agent/i, error.message)
+      assert_match(/unknown target/i, error.message)
     end
 
     def test_execute_with_agent_delegation
@@ -1105,6 +1105,9 @@ module SwarmSDK
 
       # Initialize agents
       swarm.agent(swarm.agent_names.first)
+
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
 
       breakdown = swarm.context_breakdown
 

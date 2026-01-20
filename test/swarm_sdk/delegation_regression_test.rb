@@ -48,10 +48,17 @@ module SwarmSDK
         "Lead should have backend delegation tool",
       )
 
-      # Verify delegation instance was created (isolated mode)
+      # Verify delegation tool is configured for lazy loading (isolated mode)
+      delegate_tool = lead_agent.tools[:WorkWithBackend]
+
+      assert_predicate(delegate_tool, :lazy?, "Isolated delegate should use lazy loading")
+
+      # Force initialization to verify instance gets created
+      swarm.initialize_lazy_delegates!
+
       assert(
         swarm.delegation_instances.key?("backend@lead"),
-        "Should create delegation instance in isolated mode",
+        "Should create delegation instance after force initialization",
       )
     end
 
@@ -111,7 +118,7 @@ module SwarmSDK
         swarm.agent(:lead)
       end
 
-      assert_match(/unknown agent/i, error.message)
+      assert_match(/unknown target/i, error.message)
     end
 
     # Test: Default tools still registered for delegation instances
@@ -138,10 +145,13 @@ module SwarmSDK
       # Trigger initialization
       swarm.agent(:frontend)
 
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
+
       # Get delegation instance
       backend_instance = swarm.delegation_instances["backend@frontend"]
 
-      assert(backend_instance, "Should have delegation instance")
+      assert(backend_instance, "Should have delegation instance after force initialization")
 
       # Verify default tools are registered
       assert(backend_instance.has_tool?(:Read), "Should have Read tool")
@@ -224,8 +234,13 @@ module SwarmSDK
       # Trigger initialization
       swarm.agent(:frontend)
 
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
+
       # Get delegation instance
       backend_instance = swarm.delegation_instances["backend@frontend"]
+
+      assert(backend_instance, "Should have delegation instance after force initialization")
 
       # Verify custom tools are registered
       assert(backend_instance.has_tool?(:Read), "Should have Read tool")
@@ -277,6 +292,9 @@ module SwarmSDK
 
       # Trigger initialization
       swarm.agent(:frontend)
+
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
 
       # Should create 3 separate delegation instances
       assert(swarm.delegation_instances.key?("database@frontend"))

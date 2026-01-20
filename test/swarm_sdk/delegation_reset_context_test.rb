@@ -296,6 +296,10 @@ module SwarmSDK
       ))
 
       swarm.lead = :frontend
+
+      # Force lazy delegate initialization for tests that need to access delegation instances
+      swarm.initialize_lazy_delegates!
+
       swarm
     end
 

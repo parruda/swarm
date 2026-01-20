@@ -50,6 +50,9 @@ module SwarmSDK
       # Trigger initialization
       swarm.agent(:frontend)
 
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
+
       # Verify delegation instances were created
       assert(
         swarm.delegation_instances.key?("tester@frontend"),
@@ -180,6 +183,9 @@ module SwarmSDK
       # Trigger initialization
       swarm.agent(:frontend)
 
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
+
       frontend_tester = swarm.delegation_instances["tester@frontend"]
       backend_tester = swarm.delegation_instances["tester@backend"]
 
@@ -266,6 +272,9 @@ module SwarmSDK
       # Trigger initialization
       swarm.agent(:frontend)
 
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
+
       # Verify base name extraction works correctly by checking delegation instance keys
       # The naming convention "base@delegator" proves base name extraction works
       assert(
@@ -309,6 +318,9 @@ module SwarmSDK
 
       # Trigger initialization
       swarm.agent(:frontend)
+
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
 
       refute_empty(swarm.delegation_instances, "Should have delegation instances before cleanup")
 
@@ -358,6 +370,9 @@ module SwarmSDK
       # Trigger initialization
       swarm.agent(:frontend)
 
+      # Force initialization of all lazy delegates (cascading)
+      swarm.initialize_lazy_delegates!
+
       # Verify delegation instances created at all levels
       assert(
         swarm.delegation_instances.key?("tester@frontend"),
@@ -368,12 +383,8 @@ module SwarmSDK
         "Should create tester@backend",
       )
 
-      # Verify nested delegation instances
-      # Primary tester also delegates to database, so we get database@tester too
-      assert(
-        swarm.delegation_instances.key?("database@tester"),
-        "Should create database@tester for primary tester's delegation",
-      )
+      # Verify nested delegation instances (database@tester@frontend, etc.)
+      # With lazy loading, nested delegates are also lazy loaded
       assert(
         swarm.delegation_instances.key?("database@tester@frontend"),
         "Should create database@tester@frontend for nested delegation",
@@ -383,11 +394,13 @@ module SwarmSDK
         "Should create database@tester@backend for nested delegation",
       )
 
-      # All should be different instances (2 tester + 3 database = 5 total)
+      # All should be different instances (2 tester + 2 database = 4 total)
+      # Note: With lazy loading, there's no separate "database@tester" since
+      # tester is only used as a delegate (no primary instance)
       instances = swarm.delegation_instances.values
 
-      assert_equal(5, instances.size)
-      assert_equal(5, instances.uniq.size, "All delegation instances should be unique")
+      assert_equal(4, instances.size)
+      assert_equal(4, instances.uniq.size, "All delegation instances should be unique")
     end
 
     # Test: Nested delegation with shared mode
@@ -430,6 +443,9 @@ module SwarmSDK
 
       # Trigger initialization
       swarm.agent(:frontend)
+
+      # Force initialization of lazy delegates
+      swarm.initialize_lazy_delegates!
 
       # Verify tester delegation instances created (isolated)
       assert(swarm.delegation_instances.key?("tester@frontend"))
