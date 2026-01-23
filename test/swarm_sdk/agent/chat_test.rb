@@ -429,8 +429,8 @@ module SwarmSDK
       captured_body = nil
       stub_request(:post, "https://api.openai.com/v1/chat/completions")
         .with do |request|
-        captured_body = JSON.parse(request.body)
-        true
+          captured_body = JSON.parse(request.body)
+          true
       end
         .to_return(
           status: 200,
@@ -714,8 +714,8 @@ module SwarmSDK
       captured_body = nil
       stub_request(:post, "https://api.openai.com/v1/chat/completions")
         .with do |request|
-        captured_body = JSON.parse(request.body)
-        true
+          captured_body = JSON.parse(request.body)
+          true
       end
         .to_return(
           status: 200,
@@ -775,8 +775,8 @@ module SwarmSDK
       captured_body = nil
       stub_request(:post, "https://api.openai.com/v1/chat/completions")
         .with do |request|
-        captured_body = JSON.parse(request.body)
-        true
+          captured_body = JSON.parse(request.body)
+          true
       end
         .to_return(
           status: 200,
@@ -914,29 +914,29 @@ module SwarmSDK
       # Second call succeeds (after orphan pruning)
       stub_request(:post, "https://api.openai.com/v1/chat/completions")
         .to_return do |_request|
-        call_count += 1
-        if call_count == 1
-          # First call fails with tool_use error
-          {
-            status: 400,
-            body: { error: { message: "tool_use block must have corresponding tool_result" } }.to_json,
-            headers: { "Content-Type" => "application/json" },
-          }
-        else
-          # Second call succeeds
-          {
-            status: 200,
-            body: {
-              id: "chatcmpl-123",
-              object: "chat.completion",
-              created: 1_677_652_288,
-              model: "gpt-5",
-              choices: [{ index: 0, message: { role: "assistant", content: "Recovered!" }, finish_reason: "stop" }],
-              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-            }.to_json,
-            headers: { "Content-Type" => "application/json" },
-          }
-        end
+          call_count += 1
+          if call_count == 1
+            # First call fails with tool_use error
+            {
+              status: 400,
+              body: { error: { message: "tool_use block must have corresponding tool_result" } }.to_json,
+              headers: { "Content-Type" => "application/json" },
+            }
+          else
+            # Second call succeeds
+            {
+              status: 200,
+              body: {
+                id: "chatcmpl-123",
+                object: "chat.completion",
+                created: 1_677_652_288,
+                model: "gpt-5",
+                choices: [{ index: 0, message: { role: "assistant", content: "Recovered!" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+              }.to_json,
+              headers: { "Content-Type" => "application/json" },
+            }
+          end
       end
 
       LogStream.stub(:emit, ->(event) { events << event }) do
@@ -1029,27 +1029,27 @@ module SwarmSDK
 
       stub_request(:post, "https://api.openai.com/v1/chat/completions")
         .to_return do |_request|
-        call_count += 1
-        if call_count == 1
-          {
-            status: 400,
-            body: { error: { message: "tool_use block must have corresponding tool_result" } }.to_json,
-            headers: { "Content-Type" => "application/json" },
-          }
-        else
-          {
-            status: 200,
-            body: {
-              id: "chatcmpl-123",
-              object: "chat.completion",
-              created: 1_677_652_288,
-              model: "gpt-5",
-              choices: [{ index: 0, message: { role: "assistant", content: "Done!" }, finish_reason: "stop" }],
-              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-            }.to_json,
-            headers: { "Content-Type" => "application/json" },
-          }
-        end
+          call_count += 1
+          if call_count == 1
+            {
+              status: 400,
+              body: { error: { message: "tool_use block must have corresponding tool_result" } }.to_json,
+              headers: { "Content-Type" => "application/json" },
+            }
+          else
+            {
+              status: 200,
+              body: {
+                id: "chatcmpl-123",
+                object: "chat.completion",
+                created: 1_677_652_288,
+                model: "gpt-5",
+                choices: [{ index: 0, message: { role: "assistant", content: "Done!" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+              }.to_json,
+              headers: { "Content-Type" => "application/json" },
+            }
+          end
       end
 
       LogStream.stub(:emit, ->(event) { events << event }) do
@@ -1083,27 +1083,27 @@ module SwarmSDK
 
       stub_request(:post, "https://api.openai.com/v1/chat/completions")
         .to_return do |_request|
-        call_count += 1
-        if call_count == 1
-          {
-            status: 400,
-            body: { error: { message: "tool_use block must have corresponding tool_result" } }.to_json,
-            headers: { "Content-Type" => "application/json" },
-          }
-        else
-          {
-            status: 200,
-            body: {
-              id: "chatcmpl-123",
-              object: "chat.completion",
-              created: 1_677_652_288,
-              model: "gpt-5",
-              choices: [{ index: 0, message: { role: "assistant", content: "Recovered!" }, finish_reason: "stop" }],
-              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-            }.to_json,
-            headers: { "Content-Type" => "application/json" },
-          }
-        end
+          call_count += 1
+          if call_count == 1
+            {
+              status: 400,
+              body: { error: { message: "tool_use block must have corresponding tool_result" } }.to_json,
+              headers: { "Content-Type" => "application/json" },
+            }
+          else
+            {
+              status: 200,
+              body: {
+                id: "chatcmpl-123",
+                object: "chat.completion",
+                created: 1_677_652_288,
+                model: "gpt-5",
+                choices: [{ index: 0, message: { role: "assistant", content: "Recovered!" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+              }.to_json,
+              headers: { "Content-Type" => "application/json" },
+            }
+          end
       end
 
       LogStream.stub(:emit, ->(_event) {}) do
@@ -1141,29 +1141,29 @@ module SwarmSDK
 
       stub_request(:post, "https://api.openai.com/v1/chat/completions")
         .to_return do |request|
-        call_count += 1
-        if call_count == 1
-          {
-            status: 400,
-            body: { error: { message: "tool_use block must have corresponding tool_result" } }.to_json,
-            headers: { "Content-Type" => "application/json" },
-          }
-        else
-          # Capture the second request to verify system reminder was added
-          captured_request_body = JSON.parse(request.body)
-          {
-            status: 200,
-            body: {
-              id: "chatcmpl-123",
-              object: "chat.completion",
-              created: 1_677_652_288,
-              model: "gpt-5",
-              choices: [{ index: 0, message: { role: "assistant", content: "Done!" }, finish_reason: "stop" }],
-              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-            }.to_json,
-            headers: { "Content-Type" => "application/json" },
-          }
-        end
+          call_count += 1
+          if call_count == 1
+            {
+              status: 400,
+              body: { error: { message: "tool_use block must have corresponding tool_result" } }.to_json,
+              headers: { "Content-Type" => "application/json" },
+            }
+          else
+            # Capture the second request to verify system reminder was added
+            captured_request_body = JSON.parse(request.body)
+            {
+              status: 200,
+              body: {
+                id: "chatcmpl-123",
+                object: "chat.completion",
+                created: 1_677_652_288,
+                model: "gpt-5",
+                choices: [{ index: 0, message: { role: "assistant", content: "Done!" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+              }.to_json,
+              headers: { "Content-Type" => "application/json" },
+            }
+          end
       end
 
       LogStream.stub(:emit, ->(_event) {}) do

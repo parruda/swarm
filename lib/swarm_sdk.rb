@@ -31,7 +31,7 @@ unless defined?(Rails)
   if mcp_loader
     # Try upstream gem name first, fall back to fork gem name
     mcp_gem_dir = Gem.loaded_specs["ruby_llm-mcp"]&.gem_dir ||
-                  Gem.loaded_specs["ruby_llm_swarm-mcp"]&.gem_dir
+      Gem.loaded_specs["ruby_llm_swarm-mcp"]&.gem_dir
     if mcp_gem_dir
       railtie_path = File.join(mcp_gem_dir, "lib", "ruby_llm", "mcp", "railtie.rb")
       mcp_loader.ignore(railtie_path)
