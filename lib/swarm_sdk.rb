@@ -18,14 +18,20 @@ require "async/semaphore"
 require "ruby_llm"
 require "ruby_llm/mcp"
 
-# Patch ruby_llm_swarm-mcp's Zeitwerk loader to ignore railtie.rb when Rails is not present
+# Load ruby_llm compatibility patches
+# These patches extend upstream ruby_llm to match fork functionality used by SwarmSDK
+require_relative "swarm_sdk/ruby_llm_patches/init"
+
+# Patch ruby_llm-mcp's Zeitwerk loader to ignore railtie.rb when Rails is not present
 # This prevents NameError when eager loading outside of Rails applications
 unless defined?(Rails)
   require "zeitwerk"
   mcp_loader = nil
   Zeitwerk::Registry.loaders.each { |l| mcp_loader = l if l.tag == "RubyLLM-mcp" }
   if mcp_loader
-    mcp_gem_dir = Gem.loaded_specs["ruby_llm_swarm-mcp"]&.gem_dir
+    # Try upstream gem name first, fall back to fork gem name
+    mcp_gem_dir = Gem.loaded_specs["ruby_llm-mcp"]&.gem_dir ||
+                  Gem.loaded_specs["ruby_llm_swarm-mcp"]&.gem_dir
     if mcp_gem_dir
       railtie_path = File.join(mcp_gem_dir, "lib", "ruby_llm", "mcp", "railtie.rb")
       mcp_loader.ignore(railtie_path)

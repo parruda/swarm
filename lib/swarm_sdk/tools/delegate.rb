@@ -309,8 +309,8 @@ module SwarmSDK
           # Reset swarm if reset_context is true
           swarm_registry.reset(@delegate_target) if reset_context
 
-          # Execute sub-swarm's lead agent
-          lead_agent = subswarm.agents[subswarm.lead_agent]
+          # Execute sub-swarm's lead agent (uses agent() to trigger lazy initialization)
+          lead_agent = subswarm.agent(subswarm.lead_agent)
           response = lead_agent.ask(message, source: "delegation")
           result = response.content
 
