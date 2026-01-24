@@ -18,14 +18,32 @@ require "async/semaphore"
 require "ruby_llm"
 require "ruby_llm/mcp"
 
-# Patch ruby_llm_swarm-mcp's Zeitwerk loader to ignore railtie.rb when Rails is not present
+# Load ruby_llm compatibility patches
+# These patches extend upstream ruby_llm to match fork functionality used by SwarmSDK
+require_relative "swarm_sdk/ruby_llm_patches/init"
+
+# Patch Zeitwerk loaders to ignore Rails-dependent files when Rails is not present
 # This prevents NameError when eager loading outside of Rails applications
 unless defined?(Rails)
   require "zeitwerk"
+
+  # Ignore ruby_llm's ActiveRecord integration (requires ActiveSupport)
+  ruby_llm_loader = nil
+  Zeitwerk::Registry.loaders.each { |l| ruby_llm_loader = l if l.tag == "ruby_llm" }
+  if ruby_llm_loader
+    ruby_llm_gem_dir = Gem.loaded_specs["ruby_llm"]&.gem_dir
+    if ruby_llm_gem_dir
+      active_record_dir = File.join(ruby_llm_gem_dir, "lib", "ruby_llm", "active_record")
+      ruby_llm_loader.ignore(active_record_dir)
+    end
+  end
+
+  # Ignore ruby_llm-mcp's railtie
   mcp_loader = nil
   Zeitwerk::Registry.loaders.each { |l| mcp_loader = l if l.tag == "RubyLLM-mcp" }
   if mcp_loader
-    mcp_gem_dir = Gem.loaded_specs["ruby_llm_swarm-mcp"]&.gem_dir
+    mcp_gem_dir = Gem.loaded_specs["ruby_llm-mcp"]&.gem_dir ||
+      Gem.loaded_specs["ruby_llm_swarm-mcp"]&.gem_dir
     if mcp_gem_dir
       railtie_path = File.join(mcp_gem_dir, "lib", "ruby_llm", "mcp", "railtie.rb")
       mcp_loader.ignore(railtie_path)
@@ -51,6 +69,8 @@ loader.inflector.inflect(
   "mcp" => "MCP",
   "openai_with_responses" => "OpenAIWithResponses",
 )
+# Ignore ruby_llm_patches - these are manually required monkey patches, not autoloaded modules
+loader.ignore("#{__dir__}/swarm_sdk/ruby_llm_patches")
 loader.setup
 
 module SwarmSDK

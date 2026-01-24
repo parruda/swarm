@@ -500,7 +500,9 @@ module SwarmSDK
 
       # Mock streaming that fails mid-stream
       # In practice this is hard to test with WebMock, so we'll test with a regular error
-      stub_llm_error(error_code: "rate_limit", message: "Rate limit", status: 429)
+      # Note: Must use "rate_limit_exceeded" type for RubyLLM's streaming parser to correctly
+      # identify this as a 429 error (it parses error type from body, not HTTP status)
+      stub_llm_error(error_code: "rate_limit_exceeded", message: "Rate limit", status: 429)
 
       # Disable retries to fail immediately
       RubyLLM.config.max_retries = 0
