@@ -5,6 +5,28 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.11]
+
+### Changed
+
+- **Migrate from `ruby_llm_swarm` fork to upstream `ruby_llm` (~> 1.11)**: Replaced the custom fork dependency with the official `ruby_llm` gem, adding monkey patches to preserve fork-specific features:
+  - `chat_callbacks_patch` - Multi-subscriber callbacks with Subscription objects, `around_tool_execution` and `around_llm_request` hooks
+  - `tool_concurrency_patch` - Concurrent tool execution (async/threads)
+  - `message_management_patch` - `preserve_system_prompt` option in `reset_messages!`
+  - `configuration_patch` - Configurable Anthropic API base URL and granular timeouts
+  - `connection_patch` - Apply timeout config to Faraday connections
+  - `responses_api_patch` - OpenAI Responses API support
+  - `io_endpoint_patch` - IPv6 fallback fix for io-endpoint
+  - **Files**: `lib/swarm_sdk/ruby_llm_patches/`, `swarm_sdk.gemspec`, `swarm_memory.gemspec`
+- **Removed `openssl` gem dependency** from swarm_sdk.gemspec (no longer needed)
+
+### Fixed
+
+- **Sub-swarm delegation lazy initialization**: Sub-swarm agents weren't initialized before accessing the lead agent, causing `NoMethodError` when delegating to agents in included swarms. Uses `Swarm#agent()` instead of direct hash access to ensure initialization.
+  - **Files**: `lib/swarm_sdk/tools/delegate.rb`
+- **Zeitwerk eager loading outside Rails**: Ignore RubyLLM's ActiveRecord integration and the `ruby_llm_patches` directory during Zeitwerk eager loading to prevent `NameError` in non-Rails applications.
+  - **Files**: `lib/swarm_sdk.rb`
+
 ## [2.7.10]
 
 ### Added
