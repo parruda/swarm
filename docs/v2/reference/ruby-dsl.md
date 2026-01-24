@@ -1595,6 +1595,66 @@ end
 
 ---
 
+### thinking
+
+Configure extended thinking (chain-of-thought reasoning) for this agent.
+
+**Signature:**
+```ruby
+thinking(effort: nil, budget: nil) → self
+```
+
+**Parameters:**
+- `effort` (Symbol/String, optional): Reasoning effort level — `:low`, `:medium`, `:high` (used by OpenAI)
+- `budget` (Integer, optional): Token budget for thinking output (used by Anthropic)
+
+At least one of `effort` or `budget` must be specified.
+
+**Provider Behavior:**
+- **Anthropic** (Claude): Uses `budget` → sends `{type: 'enabled', budget_tokens: N}` to the API
+- **OpenAI** (o-series): Uses `effort` → sends `reasoning_effort: 'high'` to the API
+- Both can be specified for cross-provider portability
+
+**Example:**
+```ruby
+# Anthropic: budget-based thinking
+agent :researcher do
+  model "claude-sonnet-4-5"
+  thinking budget: 10_000
+end
+
+# OpenAI: effort-based reasoning
+agent :planner do
+  model "o3"
+  thinking effort: :high
+end
+
+# Cross-provider (each provider uses what it supports)
+agent :flexible do
+  model "claude-sonnet-4-5"
+  thinking effort: :high, budget: 10_000
+end
+```
+
+**Accessing Thinking Output:**
+```ruby
+result = swarm.execute("Solve this problem")
+response = result.last_message
+
+response.thinking        # => #<RubyLLM::Thinking text="..." signature="...">
+response.thinking.text   # => "Let me think step by step..."
+response.thinking_tokens # => 1500
+```
+
+**Important Notes:**
+- Thinking is disabled by default (no extended reasoning)
+- Anthropic requires a `budget` — raises `ArgumentError` if only `effort` is provided
+- OpenAI ignores `budget` and only uses `effort`
+- Can be set at the `all_agents` level as a swarm-wide default
+- Thinking output is included in token usage counts
+
+---
+
 ### memory
 
 Configure persistent memory storage for this agent.
@@ -2143,6 +2203,30 @@ all_agents do
   headers "X-Organization" => "org123"
 end
 ```
+
+---
+
+### thinking
+
+Set default extended thinking configuration for all agents.
+
+**Signature:**
+```ruby
+thinking(effort: nil, budget: nil) → void
+```
+
+**Parameters:**
+- `effort` (Symbol/String, optional): Reasoning effort level (`:low`, `:medium`, `:high`)
+- `budget` (Integer, optional): Token budget for thinking
+
+**Example:**
+```ruby
+all_agents do
+  thinking budget: 10_000
+end
+```
+
+Agent-level `thinking` overrides `all_agents` thinking if set.
 
 ---
 

@@ -207,17 +207,19 @@ module RubyLLM
 
       # Perform the actual LLM request
       def perform_llm_request(messages_to_send, &block)
-        @provider.complete(
-          messages_to_send,
+        kwargs = {
           tools: @tools,
           temperature: @temperature,
           model: @model,
           params: @params,
           headers: @headers,
           schema: @schema,
-          thinking: @thinking,
-          &wrap_streaming_block(&block)
-        )
+        }
+        # Only pass thinking when explicitly configured via with_thinking
+        # to maintain compatibility with providers that don't support this keyword
+        kwargs[:thinking] = @thinking if @thinking
+
+        @provider.complete(messages_to_send, **kwargs, &wrap_streaming_block(&block))
       rescue ArgumentError => e
         raise ArgumentError,
           "#{e.message} — provider #{@provider.class.name} does not support this parameter " \

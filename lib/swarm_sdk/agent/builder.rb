@@ -62,6 +62,7 @@ module SwarmSDK
         @memory_config = nil
         @shared_across_delegations = nil # nil = not set (will default to false in Definition)
         @streaming = nil # nil = not set (will use global config default)
+        @thinking = nil # nil = not set (extended thinking disabled)
         @context_management_config = nil # Context management DSL hooks
       end
 
@@ -372,6 +373,38 @@ module SwarmSDK
         !@streaming.nil?
       end
 
+      # Configure extended thinking for this agent
+      #
+      # Extended thinking allows models to reason through complex problems before responding.
+      # For Anthropic models, specify a budget (token count). For OpenAI models, specify effort.
+      # Both can be specified for cross-provider compatibility.
+      #
+      # @param effort [Symbol, String, nil] Reasoning effort level (:low, :medium, :high) — used by OpenAI
+      # @param budget [Integer, nil] Token budget for thinking — used by Anthropic
+      # @return [self] Returns self for method chaining
+      #
+      # @example Anthropic thinking with budget
+      #   thinking budget: 10_000
+      #
+      # @example OpenAI reasoning effort
+      #   thinking effort: :high
+      #
+      # @example Cross-provider (both)
+      #   thinking effort: :high, budget: 10_000
+      def thinking(effort: nil, budget: nil)
+        raise ArgumentError, "thinking requires :effort or :budget" if effort.nil? && budget.nil?
+
+        @thinking = { effort: effort, budget: budget }.compact
+        self
+      end
+
+      # Check if thinking has been explicitly set
+      #
+      # @return [Boolean] true if thinking was explicitly configured
+      def thinking_set?
+        !@thinking.nil?
+      end
+
       # Configure context management handlers
       #
       # Define custom handlers for context warning thresholds (60%, 80%, 90%).
@@ -552,6 +585,7 @@ module SwarmSDK
         agent_config[:memory] = @memory_config if @memory_config
         agent_config[:shared_across_delegations] = @shared_across_delegations unless @shared_across_delegations.nil?
         agent_config[:streaming] = @streaming unless @streaming.nil?
+        agent_config[:thinking] = @thinking if @thinking
 
         # Convert DSL hooks to HookDefinition format
         agent_config[:hooks] = convert_hooks_to_definitions if @hooks.any?

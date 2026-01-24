@@ -36,6 +36,7 @@ module SwarmSDK
         @coding_agent = nil
         @disable_default_tools = nil
         @streaming = nil
+        @thinking = nil
       end
 
       # Set model for all agents
@@ -97,6 +98,16 @@ module SwarmSDK
       # @param value [Boolean] If true, enables streaming; if false, disables it
       def streaming(value)
         @streaming = value
+      end
+
+      # Configure extended thinking for all agents
+      #
+      # @param effort [Symbol, String, nil] Reasoning effort (:low, :medium, :high) — OpenAI
+      # @param budget [Integer, nil] Token budget for thinking — Anthropic
+      def thinking(effort: nil, budget: nil)
+        raise ArgumentError, "thinking requires :effort or :budget" if effort.nil? && budget.nil?
+
+        @thinking = { effort: effort, budget: budget }.compact
       end
 
       # Add tools that all agents will have
@@ -174,6 +185,7 @@ module SwarmSDK
           coding_agent: @coding_agent,
           disable_default_tools: @disable_default_tools,
           streaming: @streaming,
+          thinking: @thinking,
           tools: @tools_list,
           permissions: @permissions_config,
         }.compact

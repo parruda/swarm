@@ -224,6 +224,22 @@ module SwarmSDK
           RubyLLM.logger.debug("SwarmSDK: Enabled native Responses API support")
         end
 
+        # Configure extended thinking on the RubyLLM chat instance
+        #
+        # @param thinking_config [Hash, nil] Thinking configuration with :effort and/or :budget
+        # @return [self]
+        #
+        # @example
+        #   configure_thinking(budget: 10_000)
+        #   configure_thinking(effort: :high)
+        #   configure_thinking(effort: :high, budget: 10_000)
+        def configure_thinking(thinking_config)
+          return self unless thinking_config
+
+          @llm_chat.with_thinking(**thinking_config)
+          self
+        end
+
         # Configure LLM parameters with proper temperature normalization
         #
         # @param params [Hash] Parameter hash

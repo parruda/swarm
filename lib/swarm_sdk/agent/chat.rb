@@ -189,10 +189,11 @@ module SwarmSDK
         # Try to fetch real model info for accurate context tracking
         fetch_real_model_info(model_id)
 
-        # Configure system prompt, parameters, and headers
+        # Configure system prompt, parameters, headers, and thinking
         configure_system_prompt(system_prompt) if system_prompt
         configure_parameters(parameters)
         configure_headers(custom_headers)
+        configure_thinking(definition[:thinking])
 
         # Setup around_tool_execution hook for SwarmSDK orchestration
         setup_tool_execution_hook
@@ -984,6 +985,12 @@ module SwarmSDK
 
             # Unknown error type without status code - conservative: don't retry
             emit_non_retryable_error(e, "UnknownAPIError")
+            return build_error_message(e)
+
+          # === CATEGORY A (CONTINUED): PROGRAMMING ERRORS ===
+          rescue ArgumentError, TypeError, NameError => e
+            # Programming errors (wrong keywords, type mismatches) - won't fix by retrying
+            emit_non_retryable_error(e, e.class.name)
             return build_error_message(e)
 
           # === CATEGORY C: NETWORK/OTHER ERRORS ===

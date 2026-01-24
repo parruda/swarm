@@ -880,6 +880,67 @@ end
 
 ---
 
+### thinking
+
+**Type:** Object (optional)
+**Default:** `null` (thinking disabled)
+**Description:** Configure extended thinking (chain-of-thought reasoning) for this agent.
+
+**Properties:**
+- `budget` (Integer, optional): Token budget for thinking output — used by Anthropic
+- `effort` (String, optional): Reasoning effort level (`low`, `medium`, `high`) — used by OpenAI
+
+At least one of `budget` or `effort` must be specified.
+
+**Provider Behavior:**
+- **Anthropic** (Claude): Uses `budget` → `{type: 'enabled', budget_tokens: N}`
+- **OpenAI** (o-series): Uses `effort` → `reasoning_effort: 'high'`
+
+**Example:**
+```yaml
+agents:
+  # Anthropic: budget-based thinking
+  researcher:
+    model: claude-sonnet-4-5
+    thinking:
+      budget: 10000
+
+  # OpenAI: effort-based reasoning
+  planner:
+    model: o3
+    thinking:
+      effort: high
+
+  # Cross-provider (each uses what it supports)
+  flexible:
+    model: claude-sonnet-4-5
+    thinking:
+      effort: high
+      budget: 10000
+```
+
+**Global Configuration:**
+```yaml
+# Enable thinking for all agents by default
+all_agents:
+  thinking:
+    budget: 10000
+
+# Agent-level thinking overrides all_agents
+agents:
+  deep_thinker:
+    thinking:
+      budget: 50000  # Override with larger budget
+```
+
+**Important:**
+- Anthropic requires `budget` — raises error if only `effort` is provided
+- OpenAI ignores `budget` and uses `effort`
+- Thinking output is included in token usage counts
+- Can be set at `all_agents` level as a swarm-wide default
+
+---
+
 ### memory
 
 **Type:** Object (optional)
@@ -1346,6 +1407,22 @@ swarm:
     headers:
       X-Organization: "org123"
 ```
+
+---
+
+### thinking
+
+**Type:** Object
+**Description:** Default extended thinking configuration for all agents.
+
+```yaml
+swarm:
+  all_agents:
+    thinking:
+      budget: 10000
+```
+
+Agent-level `thinking` overrides `all_agents` thinking if set.
 
 ---
 

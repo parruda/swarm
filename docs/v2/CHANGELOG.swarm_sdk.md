@@ -5,6 +5,25 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.12]
+
+### Added
+
+- **Extended thinking support**: New `thinking` DSL method for agents and `all_agents`. Enables chain-of-thought reasoning for supported models:
+  - Anthropic (Claude): `thinking budget: 10_000` — sets token budget for thinking output
+  - OpenAI (o-series): `thinking effort: :high` — sets reasoning effort level
+  - Cross-provider: both `effort` and `budget` can be specified for portability
+  - YAML support: `thinking.budget` and `thinking.effort` keys
+  - `all_agents` support: set swarm-wide thinking defaults
+  - **Files**: `agent/builder.rb`, `agent/definition.rb`, `agent/chat.rb`, `agent/chat_helpers/llm_configuration.rb`, `swarm/all_agents_builder.rb`, `builders/base_builder.rb`, `configuration/translator.rb`
+
+### Fixed
+
+- **`unknown keyword: :thinking` error**: The `perform_llm_request` method now only passes `thinking:` to the provider when explicitly configured. Previously it always passed `thinking: nil` which caused `ArgumentError` on RubyLLM versions where `Provider#complete` doesn't accept this keyword.
+  - **Files**: `ruby_llm_patches/chat_callbacks_patch.rb`
+- **Programming errors no longer retried**: `ArgumentError`, `TypeError`, and `NameError` are now non-retryable in `call_llm_with_retry`. Previously these fell into the `StandardError` catch-all and were retried 3 times with 15-second delays.
+  - **Files**: `agent/chat.rb`
+
 ## [2.7.11]
 
 ### Changed

@@ -450,6 +450,10 @@ module SwarmSDK
         if !all_agents_hash[:streaming].nil? && !agent_builder.streaming_set?
           agent_builder.streaming(all_agents_hash[:streaming])
         end
+
+        if all_agents_hash[:thinking] && !agent_builder.thinking_set?
+          agent_builder.thinking(**all_agents_hash[:thinking])
+        end
       end
 
       # Validate all_agents filesystem tools

@@ -42,7 +42,8 @@ module SwarmSDK
         :hooks,
         :plugin_configs,
         :shared_across_delegations,
-        :streaming
+        :streaming,
+        :thinking
 
       attr_accessor :bypass_permissions, :max_concurrent_tools
 
@@ -113,6 +114,9 @@ module SwarmSDK
 
         # Streaming configuration (default: true from global config)
         @streaming = config.fetch(:streaming, SwarmSDK.config.streaming)
+
+        # Extended thinking configuration (nil = disabled)
+        @thinking = config[:thinking]
 
         # Build system prompt after directory and memory are set
         @system_prompt = build_full_system_prompt(config[:system_prompt])
