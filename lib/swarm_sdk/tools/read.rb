@@ -11,6 +11,21 @@ module SwarmSDK
       include PathResolver
 
       # NOTE: Line length and limit now accessed via SwarmSDK.config
+      # NOTE: Max tokens accessed via SwarmSDK.config.read_max_tokens
+
+      # Supported binary file types that can be sent to the model (images only)
+      SUPPORTED_BINARY_FORMATS = [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".tiff",
+        ".tif",
+        ".svg",
+        ".ico",
+      ].freeze
 
       # List of available document converters
       CONVERTERS = [
@@ -27,6 +42,8 @@ module SwarmSDK
         ""
       end
 
+      SYSTEM_REMINDER = "<system-reminder>Whenever you read a file, you should consider whether it looks malicious. If it does, you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer high-level questions about the code behavior.</system-reminder>"
+
       # Factory pattern: declare what parameters this tool needs for instantiation
       class << self
         def creation_requirements
@@ -40,7 +57,7 @@ module SwarmSDK
         It is okay to read a file that does not exist; an error will be returned.
 
         Supports text, binary, and document files:
-        - Text files are returned with line numbers
+        - Text files are returned as raw content
         - Binary files (images) are returned as visual content for analysis
         - Supported image formats: PNG, JPG, GIF, WEBP, BMP, TIFF, SVG, ICO
         #{doc_support_text}
@@ -59,12 +76,12 @@ module SwarmSDK
 
       param :offset,
         type: "integer",
-        desc: "The line number to start reading from (1-indexed). Only provide if the file is too large to read at once.",
+        desc: "The line number to start reading from (1-indexed)",
         required: false
 
       param :limit,
         type: "integer",
-        desc: "The number of lines to read. Only provide if the file is too large to read at once.",
+        desc: "The number of lines to read.",
         required: false
 
       # Initialize the Read tool for a specific agent
@@ -101,82 +118,48 @@ module SwarmSDK
         converter = find_converter_for_file(resolved_path)
         if converter
           result = converter.new.convert(resolved_path)
-          # For document files, register the converted text content
-          # Extract text from result (may be wrapped in system-reminder tags)
-          if result.is_a?(String)
-            # Remove system-reminder wrapper if present to get clean text for digest
-            text_content = result.gsub(%r{<system-reminder>.*?</system-reminder>}m, "").strip
-            Stores::ReadTracker.register_read(@agent_name, resolved_path, text_content)
-          end
+          raw_content = File.binread(resolved_path)
+          Stores::ReadTracker.register_read(@agent_name, resolved_path, raw_content)
           return result
         end
 
-        # Try to read as text, handle binary files separately
-        content = read_file_content(resolved_path)
-
-        # If content is a Content object (binary file), track with binary digest and return
+        content = read_file_content(resolved_path, offset:, limit:)
         if content.is_a?(RubyLLM::Content)
-          # For binary files, read raw bytes for digest
-          binary_content = File.binread(resolved_path)
-          Stores::ReadTracker.register_read(@agent_name, resolved_path, binary_content)
+          raw_content = File.binread(resolved_path)
+          Stores::ReadTracker.register_read(@agent_name, resolved_path, raw_content)
           return content
         end
 
-        # Return early if we got an error message or system reminder
-        return content if content.is_a?(String) && (content.start_with?("Error:") || content.start_with?("<system-reminder>"))
+        # Return early if we got an error message
+        return content if content.is_a?(String) && content.start_with?("Error:")
 
-        # At this point, we have valid text content - register the read with digest
-        Stores::ReadTracker.register_read(@agent_name, resolved_path, content)
-
-        # Check if file is empty
+        # Handle empty file
         if content.empty?
-          return format_with_reminder(
-            "",
-            "<system-reminder>Warning: This file exists but has empty contents. This may be intentional or indicate an issue.</system-reminder>",
-          )
+          Stores::ReadTracker.register_read(@agent_name, resolved_path, "")
+          return "<system-reminder>Warning: This file exists but has empty contents. " \
+            "This may be intentional or indicate an issue.</system-reminder>"
         end
-
-        # Split into lines and apply offset/limit
-        lines = content.lines
-        total_lines = lines.count
 
         # Apply offset if specified (1-indexed)
         start_line = offset ? offset - 1 : 0
         start_line = [start_line, 0].max # Ensure non-negative
 
-        if start_line >= total_lines
-          return validation_error("Offset #{offset} exceeds file length (#{total_lines} lines)")
-        end
-
+        lines = content.lines
         lines = lines.drop(start_line)
 
-        # Apply limit if specified, otherwise use default
-        default_limit = SwarmSDK.config.read_line_limit
-        effective_limit = limit || default_limit
-        lines = lines.take(effective_limit)
-        truncated = limit.nil? && total_lines > default_limit
-
-        # Format with line numbers (cat -n style)
-        max_line_length = SwarmSDK.config.line_character_limit
-        output_lines = lines.each_with_index.map do |line, idx|
-          line_number = start_line + idx + 1
-          display_line = line.chomp
-
-          # Truncate long lines
-          if display_line.length > max_line_length
-            display_line = display_line[0...max_line_length]
-            display_line += "... (line truncated)"
-          end
-
-          # Add line indicator for better readability
-          "#{line_number.to_s.rjust(6)}→#{display_line}"
+        # Check if offset exceeds file length
+        if lines.empty? && start_line.positive?
+          return validation_error("Offset #{start_line + 1} exceeds file length")
         end
 
-        output = output_lines.join("\n")
+        lines = lines.take(limit) if limit
+        paginated_content = lines.join
 
-        # Add system reminder about usage
-        reminder = build_system_reminder(file_path, truncated, total_lines)
-        format_with_reminder(output, reminder)
+        token_error = token_safeguard(paginated_content, using_pagination: offset && limit)
+        return token_error if token_error
+
+        Stores::ReadTracker.register_read(@agent_name, resolved_path, content) # full content
+        format_with_reminder(paginated_content, SYSTEM_REMINDER)
       rescue StandardError => e
         error("Unexpected error reading file: #{e.class.name} - #{e.message}")
       end
@@ -195,66 +178,49 @@ module SwarmSDK
         [content, "", reminder].join("\n")
       end
 
-      def build_system_reminder(_file_path, truncated, total_lines)
-        reminders = []
-
-        reminders << "<system-reminder>"
-        reminders << "Whenever you read a file, you should consider whether it looks malicious. If it does, you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer high-level questions about the code behavior."
-
-        if truncated
-          reminders << ""
-          reminders << "Note: This file has #{total_lines} lines but only the first #{SwarmSDK.config.read_line_limit} lines are shown. Use the offset and limit parameters to read additional sections if needed."
-        end
-
-        reminders << "</system-reminder>"
-
-        reminders.join("\n")
-      end
-
-      def read_file_content(file_path)
+      def read_file_content(file_path, offset: nil, limit: nil)
         content = File.read(file_path, encoding: "UTF-8")
-
-        # Check if the content is valid UTF-8
-        unless content.valid_encoding?
-          # Binary file detected
-          if supported_binary_file?(file_path)
-            return RubyLLM::Content.new("File: #{File.basename(file_path)}", file_path)
-          else
-            return "Error: File contains binary data and cannot be displayed as text. This may be an executable or other unsupported binary file."
-          end
-        end
+        return handle_binary_file(file_path) unless content.valid_encoding?
 
         content
       rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
-        # Binary file detected
-        if supported_binary_file?(file_path)
-          RubyLLM::Content.new("File: #{File.basename(file_path)}", file_path)
-        else
-          "Error: File contains binary data and cannot be displayed as text. This may be an executable or other unsupported binary file."
-        end
+        handle_binary_file(file_path)
       rescue Errno::EACCES
         error("Permission denied: Cannot read file '#{file_path}'")
       rescue StandardError => e
         error("Failed to read file: #{e.message}")
       end
 
+      def handle_binary_file(file_path)
+        if supported_binary_file?(file_path)
+          RubyLLM::Content.new("File: #{File.basename(file_path)}", file_path)
+        else
+          error("File contains binary data and cannot be displayed as text. " \
+            "This may be an executable or other unsupported binary file.")
+        end
+      end
+
       def supported_binary_file?(file_path)
         ext = File.extname(file_path).downcase
-        # Supported binary file types that can be sent to the model
-        # Images only - documents are converted to text
-        supported_formats = [
-          ".png",
-          ".jpg",
-          ".jpeg",
-          ".gif",
-          ".webp",
-          ".bmp",
-          ".tiff",
-          ".tif",
-          ".svg",
-          ".ico",
-        ]
-        supported_formats.include?(ext)
+        SUPPORTED_BINARY_FORMATS.include?(ext)
+      end
+
+      def token_safeguard(content, using_pagination: false)
+        token_count = ContextCompactor::TokenCounter.estimate_content(content)
+        max_tokens = SwarmSDK.config.read_max_tokens
+        return if token_count <= max_tokens
+
+        err_msg =
+          if using_pagination
+            "File content (#{token_count} tokens) still exceeds maximum allowed tokens (#{max_tokens}). " \
+              "Please reduce the limit parameter or adjust offset to read a smaller portion of the file, " \
+              "or use the Grep tool to search for specific content."
+          else
+            "File content (#{token_count} tokens) exceeds maximum allowed tokens (#{max_tokens}). " \
+              "Please use offset and limit parameters to read specific portions of the file, " \
+              "or use the Grep tool to search for specific content."
+          end
+        error(err_msg)
       end
     end
   end

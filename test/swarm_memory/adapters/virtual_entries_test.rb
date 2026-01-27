@@ -33,8 +33,9 @@ class VirtualEntriesTest < Minitest::Test
     tool = SwarmMemory::Tools::MemoryRead.new(storage: @storage, agent_name: :test)
     result = tool.execute(file_path: "skill/meta/deep-learning.md")
 
-    # Should return plain text with line numbers
-    assert_match(/     1 # Deep Learning Protocol/, result)
+    # Should return raw plain text
+    assert_match(/# Deep Learning Protocol/, result)
+    assert_match(/Define Scope/, result)
   end
 
   def test_virtual_skill_works_with_load_skill_tool

@@ -79,10 +79,9 @@ module SwarmSDK
       global_concurrency_limit: ["SWARM_SDK_GLOBAL_CONCURRENCY_LIMIT", -> { Defaults::Concurrency::GLOBAL_LIMIT }],
       local_concurrency_limit: ["SWARM_SDK_LOCAL_CONCURRENCY_LIMIT", -> { Defaults::Concurrency::LOCAL_LIMIT }],
       output_character_limit: ["SWARM_SDK_OUTPUT_CHARACTER_LIMIT", -> { Defaults::Limits::OUTPUT_CHARACTERS }],
-      read_line_limit: ["SWARM_SDK_READ_LINE_LIMIT", -> { Defaults::Limits::READ_LINES }],
-      line_character_limit: ["SWARM_SDK_LINE_CHARACTER_LIMIT", -> { Defaults::Limits::LINE_CHARACTERS }],
       web_fetch_character_limit: ["SWARM_SDK_WEB_FETCH_CHARACTER_LIMIT", -> { Defaults::Limits::WEB_FETCH_CHARACTERS }],
       glob_result_limit: ["SWARM_SDK_GLOB_RESULT_LIMIT", -> { Defaults::Limits::GLOB_RESULTS }],
+      read_max_tokens: ["SWARM_SDK_READ_MAX_TOKENS", -> { Defaults::Limits::READ_MAX_TOKENS }],
       scratchpad_entry_size_limit: ["SWARM_SDK_SCRATCHPAD_ENTRY_SIZE_LIMIT", -> { Defaults::Storage::ENTRY_SIZE_BYTES }],
       scratchpad_total_size_limit: ["SWARM_SDK_SCRATCHPAD_TOTAL_SIZE_LIMIT", -> { Defaults::Storage::TOTAL_SIZE_BYTES }],
       context_compression_threshold: ["SWARM_SDK_CONTEXT_COMPRESSION_THRESHOLD", -> { Defaults::Context::COMPRESSION_THRESHOLD_PERCENT }],
@@ -355,7 +354,7 @@ module SwarmSDK
         else
           true # Default to true if unrecognized
         end
-      when /_timeout$/, /_limit$/, /_interval$/, /_threshold$/, :mcp_log_level, :webfetch_max_tokens
+      when /_timeout$/, /_limit$/, /_interval$/, /_threshold$/, /_tokens$/, :mcp_log_level
         value.to_i
       when /^chars_per_token/
         value.to_f

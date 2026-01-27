@@ -1728,9 +1728,8 @@ sequenceDiagram
     Adapter->>Adapter: increment_hits(file_path)
     Adapter-->>Storage: Entry
     Storage-->>MemoryRead: Entry
-    MemoryRead->>MemoryRead: format_with_line_numbers(entry.content)
     MemoryRead->>MemoryRead: format_related_memories_reminder(related_paths)
-    MemoryRead-->>Agent: Plain text with line numbers + system-reminder
+    MemoryRead-->>Agent: Raw content + system-reminder (if related memories exist)
 ```
 
 ### Edit Flow
@@ -1826,7 +1825,6 @@ sequenceDiagram
     end
 
     LoadSkill->>Chat: mark_skill_loaded(path)
-    LoadSkill->>LoadSkill: format_with_line_numbers(content)
     LoadSkill->>LoadSkill: build_toolset_reminder(tools)
     LoadSkill-->>Agent: Content + System Reminder
 

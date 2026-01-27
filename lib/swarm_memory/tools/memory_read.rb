@@ -29,7 +29,7 @@ module SwarmMemory
         INVALID: documentation/, reference/, tutorial/, parallel/, analysis/, notes/
 
         **Returns:**
-        Markdown content with line numbers (same format as 'cat -n').
+        Raw markdown content.
         If the entry has related memories, a system-reminder section is appended listing them.
 
         **Examples:**
@@ -39,7 +39,6 @@ module SwarmMemory
 
         **Important:**
         - Always read entries before editing them with MemoryEdit
-        - Line numbers in output are for reference only - don't include them when editing
         - Each read is tracked to enforce read-before-edit patterns
         - Related memories in the system-reminder can be read with MemoryRead for additional context
       DESC
@@ -66,7 +65,7 @@ module SwarmMemory
       # Execute the tool
       #
       # @param file_path [String] Path to read from
-      # @return [String] Content with line numbers and optional related memories reminder
+      # @return [String] Raw content with optional related memories reminder
       def execute(file_path:)
         # Read full entry with metadata
         entry = @storage.read_entry(file_path: file_path)
@@ -74,8 +73,8 @@ module SwarmMemory
         # Register this read in the tracker with content digest
         Core::StorageReadTracker.register_read(@agent_name, file_path, entry.content)
 
-        # Return plain text with line numbers
-        result = format_with_line_numbers(entry.content)
+        # Return raw content
+        result = entry.content
 
         # Append related memories reminder if present
         related_paths = entry.metadata&.dig("related") || []
@@ -90,20 +89,6 @@ module SwarmMemory
 
       def validation_error(message)
         "<tool_use_error>InputValidationError: #{message}</tool_use_error>"
-      end
-
-      # Format content with line numbers (same format as Read tool)
-      #
-      # @param content [String] Content to format
-      # @return [String] Content with line numbers
-      def format_with_line_numbers(content)
-        lines = content.lines
-        output_lines = lines.each_with_index.map do |line, idx|
-          line_number = idx + 1
-          display_line = line.chomp
-          "#{line_number.to_s.rjust(6)} #{display_line}"
-        end
-        output_lines.join("\n")
       end
 
       # Format related memories as a system-reminder section

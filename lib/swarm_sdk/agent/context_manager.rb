@@ -249,10 +249,12 @@ module SwarmSDK
       # @param content [String] Tool result content
       # @return [String, nil] Tool name or nil
       def detect_tool_name(content)
-        # Many tool results start with patterns we can detect
+        # Many tool results have patterns we can detect
         case content
-        when /^\s*\d+→/ # Line numbers (Read, MemoryRead)
-          content.include?("memory://") ? "MemoryRead" : "Read"
+        when /you should consider whether it looks malicious/ # Read tool system reminder
+          "Read"
+        when /Related memories that may provide additional context:/ # MemoryRead related memories reminder
+          "MemoryRead"
         when /^Memory entries matching/ # MemoryGlob
           "MemoryGlob"
         when /^Found \d+ files? matching/ # Glob

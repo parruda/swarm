@@ -180,9 +180,8 @@ class SkillsIntegrationTest < Minitest::Test
     memory_read = agent.tools.values.find { |t| t.name == "MemoryRead" }
     result = memory_read.execute(file_path: "skill/test-skill.md")
 
-    # Should return plain text with line numbers
-    assert_match(/     1 # Test Skill/, result)
-    assert_match(/     3 Step by step instructions/, result)
+    # Should return raw plain text
+    assert_equal("# Test Skill\n\nStep by step instructions", result)
   end
 
   def test_swarm_sdk_works_without_swarm_memory_gem

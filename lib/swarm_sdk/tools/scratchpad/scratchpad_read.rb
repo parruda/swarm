@@ -25,7 +25,6 @@ module SwarmSDK
           ## Best Practices
 
           - Any agent can read any scratchpad content
-          - Content is returned with line numbers for easy reference
           - Use ScratchpadList first if you don't know what's stored
           - Scratchpad data is temporary and lost when swarm ends
           - For persistent data, use MemoryRead instead
@@ -62,10 +61,9 @@ module SwarmSDK
         # Execute the tool
         #
         # @param file_path [String] Path to read from
-        # @return [String] Content at the path with line numbers, or error message
+        # @return [String] Content at the path, or error message
         def execute(file_path:)
-          content = scratchpad_storage.read(file_path: file_path)
-          format_with_line_numbers(content)
+          scratchpad_storage.read(file_path: file_path)
         rescue ArgumentError => e
           validation_error(e.message)
         end
@@ -76,20 +74,6 @@ module SwarmSDK
 
         def validation_error(message)
           "<tool_use_error>InputValidationError: #{message}</tool_use_error>"
-        end
-
-        # Format content with line numbers (same format as Read tool)
-        #
-        # @param content [String] Content to format
-        # @return [String] Content with line numbers
-        def format_with_line_numbers(content)
-          lines = content.lines
-          output_lines = lines.each_with_index.map do |line, idx|
-            line_number = idx + 1
-            display_line = line.chomp
-            "#{line_number.to_s.rjust(6)}→#{display_line}"
-          end
-          output_lines.join("\n")
         end
       end
     end

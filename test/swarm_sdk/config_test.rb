@@ -19,12 +19,12 @@ module SwarmSDK
         "SWARM_SDK_WEBFETCH_MODEL",
         "SWARM_SDK_WEBFETCH_MAX_TOKENS",
         "SWARM_SDK_BASH_COMMAND_TIMEOUT",
-        "SWARM_SDK_READ_LINE_LIMIT",
         "SWARM_SDK_GLOBAL_CONCURRENCY_LIMIT",
         "SWARM_SDK_CHARS_PER_TOKEN_PROSE",
         "SWARM_SDK_CHARS_PER_TOKEN_CODE",
         "SWARM_SDK_MCP_LOG_LEVEL",
         "SWARM_SDK_CONTEXT_COMPRESSION_THRESHOLD",
+        "SWARM_SDK_READ_MAX_TOKENS",
       ].each do |key|
         @original_env[key] = ENV[key]
         ENV.delete(key)
@@ -166,7 +166,6 @@ module SwarmSDK
       # Test a sample of defaults
       assert_equal(Defaults::Timeouts::AGENT_REQUEST_SECONDS, SwarmSDK.config.agent_request_timeout)
       assert_equal(Defaults::Timeouts::BASH_COMMAND_MS, SwarmSDK.config.bash_command_timeout)
-      assert_equal(Defaults::Limits::READ_LINES, SwarmSDK.config.read_line_limit)
       assert_equal(Defaults::Concurrency::GLOBAL_LIMIT, SwarmSDK.config.global_concurrency_limit)
     end
 
@@ -182,11 +181,11 @@ module SwarmSDK
 
     def test_override_limit_defaults
       SwarmSDK.configure do |config|
-        config.read_line_limit = 5000
+        config.read_max_tokens = 50_000
         config.output_character_limit = 50_000
       end
 
-      assert_equal(5000, SwarmSDK.config.read_line_limit)
+      assert_equal(50_000, SwarmSDK.config.read_max_tokens)
       assert_equal(50_000, SwarmSDK.config.output_character_limit)
     end
 
@@ -309,10 +308,10 @@ module SwarmSDK
       assert_equal(180_000, SwarmSDK.config.bash_command_timeout)
     end
 
-    def test_env_integer_mapping_for_read_line_limit
-      ENV["SWARM_SDK_READ_LINE_LIMIT"] = "5000"
+    def test_env_integer_mapping_for_read_max_tokens
+      ENV["SWARM_SDK_READ_MAX_TOKENS"] = "50000"
 
-      assert_equal(5000, SwarmSDK.config.read_line_limit)
+      assert_equal(50_000, SwarmSDK.config.read_max_tokens)
     end
 
     def test_env_integer_mapping_for_global_concurrency
@@ -457,9 +456,6 @@ module SwarmSDK
 
       # ENV fallback
       assert_equal("env-anthropic-key", SwarmSDK.config.anthropic_api_key)
-
-      # Module defaults
-      assert_equal(Defaults::Limits::READ_LINES, SwarmSDK.config.read_line_limit)
 
       # WebFetch enabled
       assert_predicate(SwarmSDK.config, :webfetch_llm_enabled?)

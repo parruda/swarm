@@ -35,7 +35,6 @@ module SwarmMemory
 
         3. **Skill Content Returned**: Returns the skill's step-by-step instructions
            - Read and follow the instructions carefully
-           - Instructions are formatted with line numbers
 
         4. **System Reminder Injected**: You'll see your complete updated toolset
            - Lists all tools now available to you
@@ -204,7 +203,7 @@ module SwarmMemory
         # 8. Return content with confirmation message
         title = entry.title || "Untitled Skill"
         result = "Loaded skill: #{title}\n\n"
-        result += format_with_line_numbers(entry.content)
+        result += entry.content
 
         # 9. Add system reminder if tools were restricted
         if skill_state.restricts_tools?
@@ -263,20 +262,6 @@ module SwarmMemory
       # @return [String] Formatted error
       def validation_error(message)
         "<tool_use_error>InputValidationError: #{message}</tool_use_error>"
-      end
-
-      # Format content with line numbers (same format as Read tool)
-      #
-      # @param content [String] Content to format
-      # @return [String] Content with line numbers
-      def format_with_line_numbers(content)
-        lines = content.lines
-        output_lines = lines.each_with_index.map do |line, idx|
-          line_number = idx + 1
-          display_line = line.chomp
-          "#{line_number.to_s.rjust(6)}→#{display_line}"
-        end
-        output_lines.join("\n")
       end
     end
   end
