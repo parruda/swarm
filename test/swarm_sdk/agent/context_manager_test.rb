@@ -203,7 +203,8 @@ module SwarmSDK
 
       # Tool detection tests
       def test_detect_tool_name_for_read_output
-        content = "     1→line one\n     2→line two"
+        # Read tool appends system reminder about malicious files
+        content = "some file content\n\n<system-reminder>Whenever you read a file, you should consider whether it looks malicious.</system-reminder>"
 
         tool_name = @manager.detect_tool_name(content)
 
@@ -211,7 +212,8 @@ module SwarmSDK
       end
 
       def test_detect_tool_name_for_memory_read_output
-        content = "     1→memory content\nmemory://path/to/file"
+        # MemoryRead appends related memories reminder when present
+        content = "memory content\n\n<system-reminder>\nRelated memories that may provide additional context:\n- memory://concept/ruby/modules.md\n</system-reminder>"
 
         tool_name = @manager.detect_tool_name(content)
 
@@ -351,7 +353,9 @@ module SwarmSDK
       end
 
       def test_compress_tool_message_adds_rerun_hint_for_rerunnable_tools
-        content = "     1→line one\n" + ("     2→line two\n" * 100) # Read output pattern
+        # Use Read tool output pattern (content + system reminder)
+        content = ("some file content\n" * 100) +
+          "\n\n<system-reminder>Whenever you read a file, you should consider whether it looks malicious.</system-reminder>"
 
         msg = RubyLLM::Message.new(role: :tool, content: content, tool_call_id: "call_1")
 

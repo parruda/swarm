@@ -357,7 +357,7 @@ class LoadSkillToolTest < Minitest::Test
     assert_equal("skill/skill2.md", @chat.active_skill_path)
   end
 
-  def test_returns_content_with_line_numbers
+  def test_returns_content_without_line_numbers
     @storage.write(
       file_path: "skill/test.md",
       content: "Line 1\nLine 2\nLine 3",
@@ -367,9 +367,9 @@ class LoadSkillToolTest < Minitest::Test
 
     result = @tool.execute(file_path: "skill/test.md")
 
-    # Should include line numbers
-    assert_match(/     1→Line 1/, result)
-    assert_match(/     2→Line 2/, result)
-    assert_match(/     3→Line 3/, result)
+    # Should include raw content without line numbers
+    assert_includes(result, "Line 1\nLine 2\nLine 3")
+    # Should NOT include line number formatting
+    refute_match(/     1→/, result)
   end
 end

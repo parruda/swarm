@@ -148,20 +148,6 @@ module SwarmSDK
       # 30,000 characters balances useful information with context constraints.
       OUTPUT_CHARACTERS = 30_000
 
-      # Default lines to read from files
-      #
-      # When no explicit limit is set, Read tool returns first 2000 lines.
-      # This provides substantial file content while preventing huge files
-      # from overwhelming context.
-      READ_LINES = 2000
-
-      # Maximum characters per line in Read output
-      #
-      # Truncates very long lines to prevent single lines from consuming
-      # excessive context. 2000 characters per line is generous while
-      # protecting against minified files.
-      LINE_CHARACTERS = 2000
-
       # Maximum WebFetch content length
       #
       # Limits web content fetched from URLs. 100,000 characters provides
@@ -173,6 +159,12 @@ module SwarmSDK
       # Limits number of file paths returned by Glob tool. 1000 results
       # provides comprehensive search while preventing overwhelming output.
       GLOB_RESULTS = 1000
+
+      # Maximum tokens for Read tool output
+      #
+      # Limits file content size to prevent overwhelming agent context.
+      # 25,000 tokens (~100KB) balances useful content with context constraints.
+      READ_MAX_TOKENS = 25_000
     end
 
     # Storage limits for persistent data

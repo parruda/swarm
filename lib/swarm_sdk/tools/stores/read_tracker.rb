@@ -21,18 +21,22 @@ module SwarmSDK
           #
           # @param agent_id [Symbol] The agent identifier
           # @param file_path [String] The absolute path to the file
-          # @param content [String] File content (for digest calculation)
+          # @param content [String] The content that was read (used for digest calculation)
           # @return [String] The calculated SHA256 digest
           def register_read(agent_id, file_path, content)
             @mutex.synchronize do
               @read_files[agent_id] ||= {}
+              expanded_path = File.expand_path(file_path)
               digest = Digest::SHA256.hexdigest(content)
-              @read_files[agent_id][File.expand_path(file_path)] = digest
+              @read_files[agent_id][expanded_path] = digest
               digest
             end
           end
 
           # Check if an agent has read a file AND content hasn't changed
+          #
+          # Reads file the same way as Read tool's read_file_content:
+          # try UTF-8 first, fall back to binary if encoding errors occur.
           #
           # @param agent_id [Symbol] The agent identifier
           # @param file_path [String] The absolute path to the file
@@ -48,8 +52,11 @@ module SwarmSDK
               # Check if file still exists and matches stored digest
               return false unless File.exist?(expanded_path)
 
-              current_digest = Digest::SHA256.hexdigest(File.read(expanded_path))
+              current_content = read_file_content(expanded_path)
+              current_digest = Digest::SHA256.hexdigest(current_content)
               current_digest == stored_digest
+            rescue Errno::ENOENT
+              false
             end
           end
 
@@ -88,6 +95,24 @@ module SwarmSDK
             @mutex.synchronize do
               @read_files.clear
             end
+          end
+
+          private
+
+          # Read file content consistently with Read tool's read_file_content
+          #
+          # Tries UTF-8 encoding first, falls back to binary read if encoding
+          # errors occur or content has invalid encoding.
+          #
+          # @param file_path [String] The absolute path to the file
+          # @return [String] The file content
+          def read_file_content(file_path)
+            content = File.read(file_path, encoding: "UTF-8")
+            return File.binread(file_path) unless content.valid_encoding?
+
+            content
+          rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+            File.binread(file_path)
           end
         end
       end

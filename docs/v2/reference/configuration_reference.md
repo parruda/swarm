@@ -103,8 +103,7 @@ Limits for output sizes and content lengths.
 | Environment Variable | Config Key | Description | Default |
 |---------------------|------------|-------------|---------|
 | `SWARM_SDK_OUTPUT_CHARACTER_LIMIT` | `output_character_limit` | Maximum characters in Bash command output | `30000` |
-| `SWARM_SDK_READ_LINE_LIMIT` | `read_line_limit` | Default number of lines to read from files | `2000` |
-| `SWARM_SDK_LINE_CHARACTER_LIMIT` | `line_character_limit` | Maximum characters per line in Read output | `2000` |
+| `SWARM_SDK_READ_MAX_TOKENS` | `read_max_tokens` | Maximum tokens for Read tool file content | `25000` |
 | `SWARM_SDK_WEB_FETCH_CHARACTER_LIMIT` | `web_fetch_character_limit` | Maximum characters from web page content | `100000` |
 | `SWARM_SDK_GLOB_RESULT_LIMIT` | `glob_result_limit` | Maximum file paths returned by Glob tool | `1000` |
 
@@ -298,7 +297,7 @@ SwarmSDK.configure do |config|
 
   # Limits
   config.output_character_limit = 50_000
-  config.read_line_limit = 5000
+  config.read_max_tokens = 50_000
 
   # WebFetch LLM
   config.webfetch_provider = "openai"

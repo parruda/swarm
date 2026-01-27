@@ -26,8 +26,8 @@ module SwarmSDK
         assert_includes(result, "line 1")
         assert_includes(result, "line 2")
         assert_includes(result, "line 3")
-        # Should include line numbers
-        assert_includes(result, "→")
+        # Should include system reminder
+        assert_includes(result, "<system-reminder>")
       end
 
       def test_read_tool_with_offset_and_limit
@@ -118,11 +118,11 @@ module SwarmSDK
         tool = Read.new(agent_name: :test_agent, directory: @temp_dir)
         result = tool.execute(file_path: @test_file, offset: 100)
 
-        assert_includes(result, "Error")
+        assert_includes(result, "<tool_use_error>")
         assert_includes(result, "Offset 100 exceeds file length")
       end
 
-      def test_read_tool_truncates_long_lines
+      def test_read_tool_handles_long_lines
         # Create a file with a very long line (> 2000 chars)
         long_line = "x" * 2500
         File.write(@test_file, long_line)
@@ -130,21 +130,23 @@ module SwarmSDK
         tool = Read.new(agent_name: :test_agent, directory: @temp_dir)
         result = tool.execute(file_path: @test_file)
 
-        assert_includes(result, "line truncated")
-        refute_includes(result, "x" * 2500) # Should not include full line
+        # New implementation returns content without line truncation
+        assert_includes(result, "x" * 2500)
+        assert_includes(result, "<system-reminder>")
       end
 
-      def test_read_tool_file_with_truncation_reminder
-        # Create a file with more than DEFAULT_LIMIT lines
-        content = (1..2500).map { |i| "line #{i}\n" }.join
+      def test_read_tool_large_file_returns_content
+        # Create a file with many lines
+        content = (1..100).map { |i| "line #{i}\n" }.join
         File.write(@test_file, content)
 
         tool = Read.new(agent_name: :test_agent, directory: @temp_dir)
         result = tool.execute(file_path: @test_file)
 
-        assert_includes(result, "This file has 2500 lines")
-        assert_includes(result, "only the first 2000 lines are shown")
-        assert_includes(result, "offset and limit parameters")
+        # New implementation uses token-based limits instead of line-based
+        assert_includes(result, "line 1")
+        assert_includes(result, "line 100")
+        assert_includes(result, "<system-reminder>")
       end
 
       def test_read_tool_with_limit_specified
@@ -159,6 +161,21 @@ module SwarmSDK
         refute_includes(result, "line 30")
         # Should not include truncation reminder when limit is explicitly provided
         refute_includes(result, "only the first 2000 lines")
+      end
+
+      def test_read_tool_token_safeguard_rejects_large_files
+        File.write(@test_file, "small content")
+
+        tool = Read.new(agent_name: :test_agent, directory: @temp_dir)
+
+        # Mock token counter to return a value exceeding MAX_TOKENS
+        SwarmSDK::ContextCompactor::TokenCounter.stub(:estimate_content, 30_000) do
+          result = tool.execute(file_path: @test_file)
+
+          assert_includes(result, "Error:")
+          assert_includes(result, "exceeds maximum allowed tokens")
+          assert_includes(result, "offset and limit parameters")
+        end
       end
 
       def test_read_tool_with_pdf_file_handles_gracefully

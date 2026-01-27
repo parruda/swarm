@@ -30,9 +30,8 @@ module SwarmMemory
 
         **CRITICAL - Before Using This Tool:**
         1. You MUST use MemoryRead on the entry first - edits without reading will FAIL
-        2. Copy text exactly from MemoryRead output, EXCLUDING the line number prefix
-        3. Line number format: "    123→actual content" - only use text AFTER the arrow
-        4. Preserve exact indentation and whitespace from the original content
+        2. Copy text exactly from MemoryRead output
+        3. Preserve exact indentation and whitespace from the original content
 
         **How It Works:**
         - If old_string appears once: replacement succeeds
@@ -66,7 +65,6 @@ module SwarmMemory
         ```
 
         **Common Mistakes to Avoid:**
-        - Including line numbers in old_string or new_string
         - Not reading the entry first with MemoryRead
         - Not matching whitespace exactly
         - Trying to replace non-unique text without replace_all
@@ -136,10 +134,9 @@ module SwarmMemory
 
         # Check if old_string exists in content
         unless content.include?(old_string)
-          return validation_error(<<~ERROR.chomp)
-            old_string not found in memory entry. Make sure it matches exactly, including all whitespace and indentation.
-            Do not include line number prefixes from MemoryRead tool output.
-          ERROR
+          return validation_error(
+            "old_string not found in memory entry. Make sure it matches exactly, including all whitespace and indentation.",
+          )
         end
 
         # Count occurrences

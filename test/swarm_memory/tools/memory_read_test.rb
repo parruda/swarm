@@ -12,7 +12,7 @@ class MemoryReadToolTest < Minitest::Test
     cleanup_storage(@storage)
   end
 
-  def test_returns_content_with_line_numbers
+  def test_returns_raw_content
     # Write entry with minimal metadata
     @storage.write(
       file_path: "test/plain.md",
@@ -23,10 +23,8 @@ class MemoryReadToolTest < Minitest::Test
 
     result = @tool.execute(file_path: "test/plain.md")
 
-    # Should return plain text with line numbers (not JSON)
-    assert_match(/     1 Line 1/, result)
-    assert_match(/     2 Line 2/, result)
-    assert_match(/     3 Line 3/, result)
+    # Should return raw plain text (not JSON, no line numbers)
+    assert_equal("Line 1\nLine 2\nLine 3", result)
 
     # Should NOT be JSON
     assert_raises(JSON::ParserError) { JSON.parse(result) }
@@ -47,8 +45,8 @@ class MemoryReadToolTest < Minitest::Test
 
     result = @tool.execute(file_path: "test/with_meta.md")
 
-    # Should return plain text with line numbers
-    assert_match(/     1 Content with metadata/, result)
+    # Should return raw plain text
+    assert_equal("Content with metadata", result)
 
     # Should NOT include JSON structure or metadata fields
     refute_match(/"metadata"/, result)
@@ -74,10 +72,8 @@ class MemoryReadToolTest < Minitest::Test
 
     result = @tool.execute(file_path: "skill/debug-react.md")
 
-    # Should return plain content with line numbers
-    assert_match(/     1 # Debug React Performance/, result)
-    assert_match(/     3 1\. Profile components/, result)
-    assert_match(/     4 2\. Check re-renders/, result)
+    # Should return raw plain content
+    assert_equal("# Debug React Performance\n\n1. Profile components\n2. Check re-renders", result)
 
     # Should NOT include metadata in output
     refute_match(/"tools"/, result)
