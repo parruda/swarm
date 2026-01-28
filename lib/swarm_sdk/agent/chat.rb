@@ -526,17 +526,24 @@ module SwarmSDK
       #
       # This method:
       # 1. Serializes concurrent asks via @ask_semaphore
-      # 2. Adds CLEAN user message to history (no reminders)
-      # 3. Injects system reminders as ephemeral content (sent to LLM but not stored)
-      # 4. Triggers user_prompt hooks
-      # 5. Acquires global semaphore for LLM call
-      # 6. Delegates to RubyLLM::Chat for actual execution
+      # 2. Optionally clears conversation context (inside semaphore for safety)
+      # 3. Adds CLEAN user message to history (no reminders)
+      # 4. Injects system reminders as ephemeral content (sent to LLM but not stored)
+      # 5. Triggers user_prompt hooks
+      # 6. Acquires global semaphore for LLM call
+      # 7. Delegates to RubyLLM::Chat for actual execution
       #
       # @param prompt [String] User prompt
+      # @param clear_context [Boolean] When true, clears conversation history before
+      #   processing. Clearing happens inside the ask_semaphore, making it safe for
+      #   concurrent callers (e.g., parallel delegations to the same agent).
       # @param options [Hash] Additional options (source: for hooks)
       # @return [RubyLLM::Message] LLM response
-      def ask(prompt, **options)
+      def ask(prompt, clear_context: false, **options)
         @ask_semaphore.acquire do
+          # Clear inside semaphore so concurrent callers don't corrupt each other's messages
+          clear_conversation if clear_context
+
           if @turn_timeout
             execute_with_turn_timeout(prompt, options)
           else

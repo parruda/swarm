@@ -45,7 +45,7 @@ module SwarmSDK
       # @param delegate_description [String] Description of the delegate agent
       # @param delegate_chat [AgentChat, nil] The chat instance for the delegate agent (nil if delegating to swarm)
       # @param agent_name [Symbol, String] Name of the agent using this tool
-      # @param swarm [Swarm] The swarm instance (provides hook_registry, delegation_call_stack, swarm_registry)
+      # @param swarm [Swarm] The swarm instance (provides hook_registry, swarm_registry)
       # @param delegating_chat [Agent::Chat, nil] The chat instance of the agent doing the delegating (for accessing hooks)
       # @param custom_tool_name [String, nil] Optional custom tool name (overrides auto-generated name)
       # @param preserve_context [Boolean] Whether to preserve conversation context between delegations (default: true)
@@ -72,6 +72,16 @@ module SwarmSDK
         # Use custom tool name if provided, otherwise generate using canonical method
         @tool_name = custom_tool_name || self.class.tool_name_for(delegate_name)
         @delegate_target = delegate_name.to_s
+
+        # Track concurrent delegations to this target.
+        # When multiple parallel tool calls target the same delegate, only the first
+        # preserves context; subsequent concurrent calls always clear context to
+        # prevent cross-contamination between independent parallel work.
+        #
+        # No Mutex needed: Async Fibers run on a single thread and only switch at
+        # explicit yield points (IO, sleep, semaphore.acquire). Integer increment
+        # and decrement never yield, so they are inherently atomic.
+        @active_count = 0
       end
 
       # Override description to return dynamic string based on delegate
@@ -122,19 +132,32 @@ module SwarmSDK
 
       # Execute delegation with pre/post hooks
       #
+      # Uses Fiber-local path tracking for circular dependency detection.
+      # Each concurrent delegation runs in its own Fiber (via Async), so the path
+      # is isolated per execution path. This correctly distinguishes parallel fan-out
+      # (A→B, A→B) from true circular dependencies (A→B→A).
+      #
       # @param message [String] Message to send to the agent
       # @param reset_context [Boolean] Whether to reset the agent's conversation history before delegation
       # @return [String] Result from delegate agent or error message
       def execute(message:, reset_context: false)
+        # Save the current delegation path so we can restore it after execution.
+        # The extended path (with our target) is only needed during chat.ask() so
+        # child Fibers (nested delegations) inherit it. After delegation returns,
+        # this Fiber's path should be unchanged.
+        saved_delegation_path = Fiber[:delegation_path]
+
         # Access swarm infrastructure
-        call_stack = @swarm.delegation_call_stack
         hook_registry = @swarm.hook_registry
         swarm_registry = @swarm.swarm_registry
 
-        # Check for circular dependency
-        if call_stack.include?(@delegate_target)
-          emit_circular_warning(call_stack)
-          return "Error: Circular delegation detected: #{call_stack.join(" -> ")} -> #{@delegate_target}. " \
+        # Check for circular dependency using Fiber-local path
+        # Each Fiber inherits the parent's path, so nested delegations
+        # accumulate the full chain while parallel siblings remain isolated
+        delegation_path = saved_delegation_path || []
+        if delegation_path.include?(@delegate_target)
+          emit_circular_warning(delegation_path)
+          return "Error: Circular delegation detected: #{delegation_path.join(" -> ")} -> #{@delegate_target}. " \
             "Please restructure your delegation to avoid infinite loops."
         end
 
@@ -172,10 +195,10 @@ module SwarmSDK
         # Determine delegation type and proceed
         delegation_result = if @delegate_chat
           # Delegate to agent
-          delegate_to_agent(message, call_stack, reset_context: reset_context)
+          delegate_to_agent(message, reset_context: reset_context)
         elsif swarm_registry&.registered?(@delegate_target)
           # Delegate to registered swarm
-          delegate_to_swarm(message, call_stack, swarm_registry, reset_context: reset_context)
+          delegate_to_swarm(message, swarm_registry, reset_context: reset_context)
         else
           raise ConfigurationError, "Unknown delegation target: #{@delegate_target}"
         end
@@ -246,6 +269,11 @@ module SwarmSDK
         # Return error string for LLM
         backtrace_str = backtrace_array.join("\n  ")
         "Error: #{@tool_name} encountered an error: #{e.class.name}: #{e.message}\nBacktrace:\n  #{backtrace_str}"
+      ensure
+        # Restore the calling Fiber's delegation path.
+        # The extended path was only needed during chat.ask() so child Fibers
+        # (spawned for nested tool calls) could inherit it for circular detection.
+        Fiber[:delegation_path] = saved_delegation_path
       end
 
       private
@@ -254,28 +282,41 @@ module SwarmSDK
       #
       # Handles both eager Agent::Chat instances and lazy-loaded delegates.
       # LazyDelegateChat instances are initialized on first access.
+      # Sets Fiber-local delegation path so child Fibers (nested delegations)
+      # inherit the full chain for circular dependency detection.
+      #
+      # Tracks concurrent delegations to this target. When multiple parallel
+      # tool calls target the same delegate (fan-out), only the first call
+      # preserves context; subsequent concurrent calls always clear context
+      # to prevent cross-contamination between independent parallel work.
+      # Context clearing happens inside Agent::Chat's ask_semaphore for safety.
       #
       # @param message [String] Message to send to the agent
-      # @param call_stack [Array] Delegation call stack for circular dependency detection
       # @param reset_context [Boolean] Whether to reset the agent's conversation history before delegation
       # @return [String] Result from agent
-      def delegate_to_agent(message, call_stack, reset_context: false)
-        # Push delegate target onto call stack to track delegation chain
-        call_stack.push(@delegate_target)
-        begin
-          # Resolve the chat instance (handles lazy loading)
-          chat = resolve_delegate_chat
+      def delegate_to_agent(message, reset_context: false)
+        @active_count += 1
+        concurrent = @active_count > 1
 
-          # Clear conversation if reset_context is true OR if preserve_context is false
-          # reset_context takes precedence as it's an explicit request
-          chat.clear_conversation if reset_context || !@preserve_context
+        # Set Fiber-local delegation path for this execution path
+        # Child Fibers (from nested delegations) inherit this path automatically
+        # We create a new array to avoid mutating the parent Fiber's reference
+        Fiber[:delegation_path] = (Fiber[:delegation_path] || []) + [@delegate_target]
 
-          response = chat.ask(message, source: "delegation")
-          response.content
-        ensure
-          # Always pop from stack, even if delegation fails
-          call_stack.pop
-        end
+        # Resolve the chat instance (handles lazy loading)
+        chat = resolve_delegate_chat
+
+        # Determine if context should be cleared:
+        # - reset_context: explicit caller request
+        # - !preserve_context: agent configuration
+        # - concurrent: parallel fan-out to same delegate (always isolate)
+        # Clearing is done inside chat.ask's semaphore to avoid race conditions
+        should_clear = reset_context || !@preserve_context || concurrent
+
+        response = chat.ask(message, source: "delegation", clear_context: should_clear)
+        response.content
+      ensure
+        @active_count -= 1
       end
 
       # Resolve the delegate chat instance
@@ -294,48 +335,52 @@ module SwarmSDK
 
       # Delegate to a registered swarm
       #
+      # Sets Fiber-local delegation path so child Fibers (nested delegations)
+      # inherit the full chain for circular dependency detection.
+      # Tracks concurrent delegations the same way as delegate_to_agent.
+      #
       # @param message [String] Message to send to the swarm
-      # @param call_stack [Array] Delegation call stack for circular dependency detection
       # @param swarm_registry [SwarmRegistry] Registry for sub-swarms
       # @param reset_context [Boolean] Whether to reset the swarm's conversation history before delegation
       # @return [String] Result from swarm's lead agent
-      def delegate_to_swarm(message, call_stack, swarm_registry, reset_context: false)
+      def delegate_to_swarm(message, swarm_registry, reset_context: false)
+        @active_count += 1
+        concurrent = @active_count > 1
+
+        # Set Fiber-local delegation path for this execution path
+        Fiber[:delegation_path] = (Fiber[:delegation_path] || []) + [@delegate_target]
+
         # Load sub-swarm (lazy load + cache)
         subswarm = swarm_registry.load_swarm(@delegate_target)
 
-        # Push delegate target onto call stack to track delegation chain
-        call_stack.push(@delegate_target)
-        begin
-          # Reset swarm if reset_context is true
-          swarm_registry.reset(@delegate_target) if reset_context
+        # Reset swarm context if explicitly requested or concurrent fan-out
+        swarm_registry.reset(@delegate_target) if reset_context || concurrent
 
-          # Execute sub-swarm's lead agent (uses agent() to trigger lazy initialization)
-          lead_agent = subswarm.agent(subswarm.lead_agent)
-          response = lead_agent.ask(message, source: "delegation")
-          result = response.content
+        # Execute sub-swarm's lead agent (uses agent() to trigger lazy initialization)
+        lead_agent = subswarm.agent(subswarm.lead_agent)
+        response = lead_agent.ask(message, source: "delegation")
+        result = response.content
 
-          # Reset if keep_context: false (standard behavior)
-          swarm_registry.reset_if_needed(@delegate_target)
+        # Reset if keep_context: false (standard behavior)
+        swarm_registry.reset_if_needed(@delegate_target)
 
-          result
-        ensure
-          # Always pop from stack, even if delegation fails
-          call_stack.pop
-        end
+        result
+      ensure
+        @active_count -= 1
       end
 
       # Emit circular dependency warning event
       #
-      # @param call_stack [Array] Current delegation call stack
+      # @param delegation_path [Array<String>] Current Fiber-local delegation path
       # @return [void]
-      def emit_circular_warning(call_stack)
+      def emit_circular_warning(delegation_path)
         LogStream.emit(
           type: "delegation_circular_dependency",
           agent: @agent_name,
           swarm_id: @swarm.swarm_id,
           parent_swarm_id: @swarm.parent_swarm_id,
           target: @delegate_target,
-          call_stack: call_stack,
+          delegation_path: delegation_path,
           timestamp: Time.now.utc.iso8601,
         )
       end

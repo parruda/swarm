@@ -59,8 +59,10 @@ module SwarmSDK
         clear_called = true
       end
 
-      # Mock ask method to avoid HTTP calls
-      backend_agent.define_singleton_method(:ask) do |_task, **_options|
+      # Mock ask method — clear_context: is handled inside ask's semaphore,
+      # so the mock must call clear_conversation when clear_context is true
+      backend_agent.define_singleton_method(:ask) do |_task, **options|
+        clear_conversation if options[:clear_context]
         Struct.new(:content).new("Backend response")
       end
 
@@ -92,8 +94,9 @@ module SwarmSDK
         clear_called = true
       end
 
-      # Mock ask method
-      backend_agent.define_singleton_method(:ask) do |_task, **_options|
+      # Mock ask method — clear_context: is handled inside ask's semaphore
+      backend_agent.define_singleton_method(:ask) do |_task, **options|
+        clear_conversation if options[:clear_context]
         Struct.new(:content).new("Backend response")
       end
 
@@ -128,8 +131,9 @@ module SwarmSDK
         clear_called = true
       end
 
-      # Mock ask method
-      backend_agent.define_singleton_method(:ask) do |_task, **_options|
+      # Mock ask method — clear_context: is handled inside ask's semaphore
+      backend_agent.define_singleton_method(:ask) do |_task, **options|
+        clear_conversation if options[:clear_context]
         Struct.new(:content).new("Backend response")
       end
 
@@ -164,8 +168,9 @@ module SwarmSDK
         clear_called = true
       end
 
-      # Mock ask method
-      backend_agent.define_singleton_method(:ask) do |_task, **_options|
+      # Mock ask method — clear_context: is handled inside ask's semaphore
+      backend_agent.define_singleton_method(:ask) do |_task, **options|
+        clear_conversation if options[:clear_context]
         Struct.new(:content).new("Backend response")
       end
 
@@ -197,8 +202,9 @@ module SwarmSDK
         clear_called = true
       end
 
-      # Mock ask method
-      backend_agent.define_singleton_method(:ask) do |_task, **_options|
+      # Mock ask method — clear_context: is handled inside ask's semaphore
+      backend_agent.define_singleton_method(:ask) do |_task, **options|
+        clear_conversation if options[:clear_context]
         Struct.new(:content).new("Backend response")
       end
 
@@ -230,8 +236,9 @@ module SwarmSDK
         clear_count += 1
       end
 
-      # Mock ask method
-      backend_agent.define_singleton_method(:ask) do |_task, **_options|
+      # Mock ask method — clear_context: is handled inside ask's semaphore
+      backend_agent.define_singleton_method(:ask) do |_task, **options|
+        clear_conversation if options[:clear_context]
         Struct.new(:content).new("Backend response #{clear_count}")
       end
 

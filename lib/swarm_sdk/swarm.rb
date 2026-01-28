@@ -73,7 +73,6 @@ module SwarmSDK
     DEFAULT_TOOLS = ToolConfigurator::DEFAULT_TOOLS
 
     attr_reader :name, :agents, :lead_agent, :mcp_clients, :delegation_instances, :agent_definitions, :swarm_id, :parent_swarm_id, :swarm_registry, :scratchpad_storage, :allow_filesystem_tools, :hook_registry, :global_semaphore, :plugin_storages, :config_for_hooks, :observer_configs, :execution_timeout
-    attr_accessor :delegation_call_stack
 
     # Check if scratchpad tools are enabled
     #
@@ -173,9 +172,6 @@ module SwarmSDK
 
       # Swarm registry for managing sub-swarms (initialized later if needed)
       @swarm_registry = nil
-
-      # Delegation call stack for circular dependency detection
-      @delegation_call_stack = []
 
       # Shared semaphore for all agents
       @global_semaphore = Async::Semaphore.new(@global_concurrency)
