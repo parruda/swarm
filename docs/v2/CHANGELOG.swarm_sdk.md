@@ -5,6 +5,24 @@ All notable changes to SwarmSDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Parallel delegation support**: Agents can now delegate to the same target concurrently without false circular dependency errors. Delegation path tracking uses Fiber-local storage (`Fiber[:delegation_path]`) instead of a shared array on `Swarm`, correctly distinguishing parallel fan-out (A→B, A→B) from true circular dependencies (A→B→A).
+  - **Files**: `lib/swarm_sdk/tools/delegate.rb`, `lib/swarm_sdk/swarm.rb`
+- **Concurrent delegation context isolation**: When multiple parallel tool calls target the same delegate, only the first call preserves context; subsequent concurrent calls automatically clear context to prevent cross-contamination. Clearing happens inside `Agent::Chat`'s `ask_semaphore` via a new `clear_context:` parameter.
+  - **Files**: `lib/swarm_sdk/agent/chat.rb`, `lib/swarm_sdk/tools/delegate.rb`
+- **Request URL in `llm_api_request` event**: The `llm_api_request` event now includes the full request URL from the Faraday environment, enabling verification that LLM API requests are sent to the correct endpoint.
+  - **Files**: `lib/swarm_sdk/agent/llm_instrumentation_middleware.rb`
+
+### Fixed
+
+- **False circular delegation detection on parallel fan-out**: Replaced the shared `delegation_call_stack` array on `Swarm` with Fiber-local path tracking. Each Async Fiber tracks its own delegation chain, so parallel fan-out is no longer falsely flagged as circular.
+  - **Files**: `lib/swarm_sdk/tools/delegate.rb`, `lib/swarm_sdk/swarm.rb`
+- **`ThreadError: Attempt to unlock a mutex which is not locked`**: Replaced `defined?(Sync)` check in `run_with_sync` with `Async::Task.current?`. When already inside an async reactor, the method now yields directly instead of creating a nested reactor whose `Promise#wait` triggers the mutex error.
+  - **Files**: `lib/swarm_sdk/ruby_llm_patches/tool_concurrency_patch.rb`
+
 ## [2.7.12]
 
 ### Added
