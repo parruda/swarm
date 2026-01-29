@@ -64,10 +64,10 @@ module SwarmSDK
       assert_equal("parent", swarm.parent_swarm_id)
     end
 
-    def test_swarm_has_delegation_call_stack
-      swarm = Swarm.new(name: "Test")
-
-      assert_empty(swarm.delegation_call_stack)
+    def test_circular_delegation_uses_fiber_local_path
+      # Circular delegation detection uses Fiber[:delegation_path]
+      # which is isolated per-Fiber, allowing parallel fan-out
+      assert_nil(Fiber[:delegation_path], "delegation_path should be nil by default")
     end
 
     def test_swarm_override_swarm_ids
@@ -133,10 +133,6 @@ module SwarmSDK
       # Create mock agent chat
       mock_chat = Minitest::Mock.new
 
-      # Set up the delegation call stack on the swarm (simulating an existing delegation chain)
-      swarm.delegation_call_stack.push("agent_a")
-      swarm.delegation_call_stack.push("agent_b")
-
       tool = Tools::Delegate.new(
         delegate_name: "agent_a", # Try to delegate back to agent_a
         delegate_description: "Test agent",
@@ -145,11 +141,138 @@ module SwarmSDK
         swarm: swarm,
       )
 
+      # Simulate being in a delegation chain where agent_a and agent_b are already active
+      # by setting the Fiber-local delegation path
+      Fiber[:delegation_path] = ["agent_a", "agent_b"]
+
       # Execute should detect circular dependency
       result = tool.execute(message: "Do something")
 
       assert_match(/Circular delegation detected/, result)
       assert_match(/agent_a -> agent_b -> agent_a/, result)
+    ensure
+      Fiber[:delegation_path] = nil
+    end
+
+    def test_delegate_tool_allows_parallel_delegation_to_same_target
+      swarm = Swarm.new(name: "Test", swarm_id: "test")
+
+      # Create a simple delegate chat that responds to ask
+      delegate_chat = Object.new
+      delegate_chat.define_singleton_method(:clear_conversation) { nil }
+      response = Object.new
+      response.define_singleton_method(:content) { "Result from agent_b" }
+      delegate_chat.define_singleton_method(:ask) { |_msg, **_opts| response }
+
+      tool = Tools::Delegate.new(
+        delegate_name: "agent_b",
+        delegate_description: "Test agent",
+        delegate_chat: delegate_chat,
+        agent_name: :agent_a,
+        swarm: swarm,
+        preserve_context: false,
+      )
+
+      # No delegation path set — simulates a fresh parallel Fiber
+      # (sibling of another Fiber that's already delegating to agent_b)
+      Fiber[:delegation_path] = nil
+
+      result = tool.execute(message: "Do something")
+
+      assert_equal("Result from agent_b", result)
+    ensure
+      Fiber[:delegation_path] = nil
+    end
+
+    def test_concurrent_delegation_forces_context_clear
+      swarm = Swarm.new(name: "Test", swarm_id: "test")
+
+      # Track clear_context values and ordering for each ask call
+      clear_context_log = []
+
+      delegate_chat = Object.new
+      delegate_chat.define_singleton_method(:clear_conversation) { nil }
+      delegate_chat.define_singleton_method(:ask) do |msg, **opts|
+        clear_context_log << { message: msg, clear_context: opts[:clear_context] }
+        # Yield to allow the other Fiber to run (simulates LLM API call latency)
+        Async::Task.current.sleep(0.01)
+        response = Object.new
+        response.define_singleton_method(:content) { "done: #{msg}" }
+        response
+      end
+
+      tool = Tools::Delegate.new(
+        delegate_name: "researcher",
+        delegate_description: "Test agent",
+        delegate_chat: delegate_chat,
+        agent_name: :lead,
+        swarm: swarm,
+        preserve_context: true,
+      )
+
+      # Run two delegations in parallel using Async
+      # The first Fiber enters delegate_to_agent (active_count=1), calls ask() which yields.
+      # The second Fiber then enters delegate_to_agent (active_count=2, concurrent=true).
+      Sync do
+        barrier = Async::Barrier.new
+        barrier.async { tool.execute(message: "Task 1") }
+        barrier.async { tool.execute(message: "Task 2") }
+        barrier.wait
+      end
+
+      assert_equal(2, clear_context_log.size, "Both delegations should complete")
+
+      # First call: not concurrent (active_count was 1), preserve_context: true
+      refute(
+        clear_context_log[0][:clear_context],
+        "First parallel call should not clear context (it entered first, not concurrent)",
+      )
+
+      # Second call: concurrent (active_count was 2), must force clear
+      assert(
+        clear_context_log[1][:clear_context],
+        "Second parallel call should force clear_context: true (concurrent fan-out)",
+      )
+    ensure
+      Fiber[:delegation_path] = nil
+    end
+
+    def test_sequential_delegations_preserve_context_after_concurrency
+      swarm = Swarm.new(name: "Test", swarm_id: "test")
+
+      clear_context_log = []
+
+      delegate_chat = Object.new
+      delegate_chat.define_singleton_method(:clear_conversation) { nil }
+      delegate_chat.define_singleton_method(:ask) do |msg, **opts|
+        clear_context_log << opts[:clear_context]
+        response = Object.new
+        response.define_singleton_method(:content) { "done: #{msg}" }
+        response
+      end
+
+      tool = Tools::Delegate.new(
+        delegate_name: "researcher",
+        delegate_description: "Test agent",
+        delegate_chat: delegate_chat,
+        agent_name: :lead,
+        swarm: swarm,
+        preserve_context: true,
+      )
+
+      # Sequential calls: each finishes before the next starts, so none are concurrent
+      tool.execute(message: "Task 1")
+      tool.execute(message: "Task 2")
+      tool.execute(message: "Task 3")
+
+      assert_equal(3, clear_context_log.size)
+
+      # All sequential calls with preserve_context: true should NOT clear context
+      clear_context_log.each_with_index do |clear_context, i|
+        refute(clear_context, "Sequential call #{i + 1} should not clear context")
+      end
+    ensure
+      Fiber[:delegation_path] = nil
     end
 
     def test_builder_requires_id_when_using_swarms

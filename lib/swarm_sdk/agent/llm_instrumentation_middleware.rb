@@ -82,6 +82,7 @@ module SwarmSDK
       def emit_request_event(env, timestamp)
         request_data = {
           provider: @provider_name,
+          url: env.url.to_s,
           body: parse_body(env.body),
           timestamp: timestamp.utc.iso8601,
         }

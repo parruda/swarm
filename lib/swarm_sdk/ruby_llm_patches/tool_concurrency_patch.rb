@@ -88,11 +88,15 @@ module RubyLLM
               "Add `gem 'async'` to your Gemfile. Original error: #{e.message}"
         end
 
-        def run_with_sync(&)
-          if defined?(Sync)
-            Sync(&)
+        def run_with_sync(&block)
+          if Async::Task.current?
+            # Already inside an async reactor (SwarmSDK always runs in one).
+            # Just yield — no Sync, no nested reactor, no Promise mutex issues.
+            yield
           else
-            Async(&).wait
+            # Outside async context (e.g., standalone RubyLLM usage).
+            # Sync handles reactor creation and cleanup.
+            Sync(&block)
           end
         end
 
