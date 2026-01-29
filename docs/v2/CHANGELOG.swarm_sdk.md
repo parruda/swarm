@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Anthropic API 404 with proxy base URLs**: The Anthropic provider's `completion_url` returned `/v1/messages` (absolute path with leading slash), causing Faraday to discard the base URL path component when `anthropic_api_base` includes a path segment (e.g., `https://proxy.dev/apis/anthropic`). Patched `Anthropic::Chat#completion_url` to return `v1/messages` (relative path). Since `stream_url` delegates to `completion_url`, this fixes both sync and streaming requests.
+  - **Files**: `lib/swarm_sdk/ruby_llm_patches/configuration_patch.rb`
 - **False circular delegation detection on parallel fan-out**: Replaced the shared `delegation_call_stack` array on `Swarm` with Fiber-local path tracking. Each Async Fiber tracks its own delegation chain, so parallel fan-out is no longer falsely flagged as circular.
   - **Files**: `lib/swarm_sdk/tools/delegate.rb`, `lib/swarm_sdk/swarm.rb`
 - **`ThreadError: Attempt to unlock a mutex which is not locked`**: Replaced `defined?(Sync)` check in `run_with_sync` with `Async::Task.current?`. When already inside an async reactor, the method now yields directly instead of creating a nested reactor whose `Promise#wait` triggers the mutex error.
